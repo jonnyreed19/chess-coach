@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#176b5b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Chess Coach" />
+    <title>Chess Coach Board</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="board-column" aria-label="Chess board and controls">
+        <div class="top-bar">
+          <div>
+            <p class="eyebrow">Live Chess Coach</p>
+            <h1>Practice board</h1>
+          </div>
+          <div class="status-pill" id="gameStatus">White to move</div>
+        </div>
+
+        <div class="board-wrap">
+          <div class="captured captured-black" id="capturedBlack" aria-label="Captured black pieces"></div>
+          <div class="board-frame">
+            <div class="rank-labels" id="rankLabelsLeft" aria-hidden="true"></div>
+            <div class="board" id="board" aria-label="Interactive chess board"></div>
+            <div class="rank-labels right" id="rankLabelsRight" aria-hidden="true"></div>
+            <div class="file-labels" id="fileLabels" aria-hidden="true"></div>
+          </div>
+          <div class="captured captured-white" id="capturedWhite" aria-label="Captured white pieces"></div>
+        </div>
+
+        <div class="move-tools">
+          <button id="newWhite">New: White first</button>
+          <button id="newBlack">New: Black first</button>
+          <button id="fullReset" class="danger">Full reset</button>
+          <button id="undoMove">Undo</button>
+          <button id="flipBoard">Flip board</button>
+          <button id="coachMove" class="primary">Coach best move</button>
+        </div>
+
+        <section class="control-panel" aria-label="Game controls">
+          <label>
+            White plays
+            <select id="whiteMode">
+              <option value="human">Human with coach</option>
+              <option value="ai">AI auto-play</option>
+              <option value="manual">Manual only</option>
+            </select>
+          </label>
+          <label>
+            Black plays
+            <select id="blackMode">
+              <option value="human">Human with coach</option>
+              <option value="ai">AI auto-play</option>
+              <option value="manual">Manual only</option>
+            </select>
+          </label>
+          <label>
+            Board view
+            <select id="orientation">
+              <option value="w">White at bottom</option>
+              <option value="b">Black at bottom</option>
+            </select>
+          </label>
+          <label>
+            Side to move
+            <select id="sideToMove">
+              <option value="w">White</option>
+              <option value="b">Black</option>
+            </select>
+          </label>
+          <label>
+            Promotion
+            <select id="promotionChoice">
+              <option value="q">Queen</option>
+              <option value="r">Rook</option>
+              <option value="b">Bishop</option>
+              <option value="n">Knight</option>
+            </select>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="freeMove" />
+            Free move override
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="editBoard" />
+            Edit board
+          </label>
+        </section>
+
+        <section class="editor-panel" id="editorPanel" aria-label="Board editor">
+          <div class="editor-heading">
+            <strong>Board editor</strong>
+            <span>Pick a piece, then click a square.</span>
+          </div>
+          <div class="palette" id="palette"></div>
+          <div class="fen-row">
+            <input id="fenInput" type="text" aria-label="FEN input" spellcheck="false" />
+            <button id="loadFen">Load FEN</button>
+          </div>
+        </section>
+
+        <section class="share-panel" aria-label="Share app">
+          <div class="editor-heading">
+            <strong>Share</strong>
+            <span id="shareNotice">Preparing share link...</span>
+          </div>
+          <div class="share-row">
+            <input id="shareUrl" type="text" aria-label="Share URL" readonly />
+            <button id="copyShareLink">Copy link</button>
+            <button id="shareApp" class="primary">Share</button>
+          </div>
+          <p class="share-help">For a phone on the same Wi-Fi, run <code>python3 serve.py</code> and open the Network URL it prints.</p>
+        </section>
+      </section>
+
+      <aside class="coach-column" aria-label="Coach analysis">
+        <section class="coach-card">
+          <div class="card-heading">
+            <p class="eyebrow">Suggested moves</p>
+            <h2>Coach board</h2>
+          </div>
+          <div id="suggestions" class="suggestions"></div>
+        </section>
+
+        <section class="coach-card lesson-card">
+          <div class="card-heading">
+            <p class="eyebrow">Classroom explanation</p>
+            <h2>Lesson</h2>
+          </div>
+          <div id="lesson" class="lesson"></div>
+        </section>
+
+        <section class="coach-card">
+          <div class="card-heading">
+            <p class="eyebrow">AI board model</p>
+            <h2>Current understanding</h2>
+          </div>
+          <div class="sync-grid">
+            <div>
+              <span class="label">FEN</span>
+              <button id="copyFen" class="text-button">Copy</button>
+              <code id="fenText"></code>
+            </div>
+            <div>
+              <span class="label">Pieces seen</span>
+              <div id="pieceInventory" class="inventory"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="coach-card">
+          <div class="card-heading">
+            <p class="eyebrow">Moves</p>
+            <h2>History</h2>
+          </div>
+          <ol id="moveHistory" class="move-history"></ol>
+        </section>
+      </aside>
+    </main>
+
+    <script src="app.js?v=5"></script>
+  </body>
+</html>
