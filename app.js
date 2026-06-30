@@ -88,8 +88,8 @@ const state = {
   history: [],
   moveLog: [],
   lastMove: null,
-  whiteMode: "human",
-  blackMode: "human",
+  whiteMode: "manual",
+  blackMode: "manual",
   promotionChoice: "q",
   editMode: false,
   freeMove: false,
@@ -123,6 +123,9 @@ function bindElements() {
     "undoMove",
     "flipBoard",
     "coachMove",
+    "settingsDetails",
+    "shareDetails",
+    "modelDetails",
     "whiteMode",
     "blackMode",
     "orientation",
@@ -249,8 +252,8 @@ function fullReset() {
   state.history = [];
   state.moveLog = [];
   state.lastMove = null;
-  state.whiteMode = "human";
-  state.blackMode = "human";
+  state.whiteMode = "manual";
+  state.blackMode = "manual";
   state.promotionChoice = "q";
   state.editMode = false;
   state.freeMove = false;
@@ -258,6 +261,9 @@ function fullReset() {
   state.lastLesson = "";
   state.suggestions = [];
   state.aiTimer = null;
+  [els.settingsDetails, els.shareDetails, els.modelDetails].forEach((panel) => {
+    if (panel) panel.open = false;
+  });
   resetPaletteSelection();
   refresh("Full reset complete. The board, controls, history, and AI model are back to the default starting position.");
 }
@@ -299,6 +305,7 @@ function syncControls() {
   els.freeMove.checked = state.freeMove;
   els.editBoard.checked = state.editMode;
   els.editorPanel.classList.toggle("open", state.editMode);
+  if (state.editMode && els.settingsDetails) els.settingsDetails.open = true;
 }
 
 function refresh(message = "") {
@@ -343,12 +350,6 @@ function renderBoard() {
       if (legalTargets.has(idx)) square.classList.add(captures.has(idx) ? "capture" : "legal");
       if (state.lastMove && (state.lastMove.from === idx || state.lastMove.to === idx)) square.classList.add("last-move");
       if (checkSquare === idx) square.classList.add("in-check");
-      if ((state.orientation === "w" && (rank === 7 || file === 0)) || (state.orientation === "b" && (rank === 0 || file === 7))) {
-        const coord = document.createElement("span");
-        coord.className = "coord";
-        coord.textContent = squareName(idx);
-        square.appendChild(coord);
-      }
       square.addEventListener("click", () => handleSquareClick(idx));
       els.board.appendChild(square);
     });

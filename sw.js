@@ -1,9 +1,9 @@
-const CACHE_NAME = "chess-coach-v5";
+const CACHE_NAME = "chess-coach-v8";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js?v=5",
+  "./styles.css?v=8",
+  "./app.js?v=8",
   "./manifest.webmanifest",
   "./icon.svg",
 ];

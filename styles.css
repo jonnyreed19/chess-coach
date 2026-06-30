@@ -178,16 +178,19 @@ h2 {
 
 .board-frame {
   display: grid;
-  grid-template-columns: 24px minmax(280px, 720px) 24px;
-  grid-template-rows: minmax(280px, 720px) 24px;
+  grid-template-columns: 24px minmax(0, 720px) 24px;
+  grid-template-rows: auto 24px;
   align-items: stretch;
-  width: min(100%, 760px);
+  width: min(100%, 768px);
 }
 
 .board {
   display: grid;
+  grid-column: 2;
+  grid-row: 1;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
+  width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
   border: 2px solid #6e4a33;
@@ -246,14 +249,6 @@ h2 {
   box-shadow: inset 0 0 0 6px rgba(185, 71, 60, 0.72);
 }
 
-.square .coord {
-  position: absolute;
-  right: 6px;
-  bottom: 5px;
-  font: 700 0.72rem/1 Inter, sans-serif;
-  color: rgba(33, 28, 22, 0.55);
-}
-
 .piece-white {
   color: #fffdf8;
   text-shadow: 0 2px 2px rgba(0, 0, 0, 0.6), 0 0 1px #261a12;
@@ -278,15 +273,26 @@ h2 {
   justify-items: center;
 }
 
+.rank-labels span,
+.file-labels span {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  place-items: center;
+}
+
 .rank-labels.right {
   grid-column: 3;
 }
 
 .file-labels {
   grid-column: 2;
+  grid-row: 2;
   grid-template-columns: repeat(8, 1fr);
   align-items: center;
   justify-items: center;
+  height: 24px;
 }
 
 .captured {
@@ -307,9 +313,7 @@ h2 {
 }
 
 .move-tools,
-.control-panel,
-.editor-panel,
-.share-panel,
+.collapse-panel,
 .coach-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -325,12 +329,66 @@ h2 {
   padding: 12px;
 }
 
+.collapse-panel {
+  width: min(100%, 760px);
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.coach-column .collapse-panel {
+  width: 100%;
+  margin-top: 0;
+}
+
+.collapse-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 900;
+}
+
+.collapse-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapse-panel > summary::after {
+  content: "+";
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: #fffdf8;
+  place-items: center;
+}
+
+.collapse-panel[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.collapse-panel[open] > summary::after {
+  content: "-";
+}
+
+.collapse-panel summary small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: right;
+}
+
 .control-panel {
   display: grid;
   grid-template-columns: repeat(3, minmax(150px, 1fr));
   gap: 12px;
-  width: min(100%, 760px);
-  margin-top: 12px;
   padding: 14px;
 }
 
@@ -353,17 +411,19 @@ h2 {
 
 .editor-panel {
   display: none;
-  width: min(100%, 760px);
-  margin-top: 12px;
   padding: 14px;
 }
 
 .share-panel {
   display: grid;
   gap: 12px;
-  width: min(100%, 760px);
-  margin-top: 12px;
   padding: 14px;
+}
+
+.model-details .model-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .editor-panel.open {
@@ -420,6 +480,15 @@ h2 {
 
 .coach-card {
   padding: 16px;
+}
+
+.board-column > .coach-card {
+  width: min(100%, 760px);
+  margin-top: 16px;
+}
+
+.board-column > .lesson-card {
+  margin-top: 12px;
 }
 
 .suggestions {
@@ -549,17 +618,70 @@ code {
 
   .board-frame,
   .move-tools,
-  .control-panel,
-  .editor-panel,
-  .share-panel {
+  .collapse-panel {
     width: 100%;
   }
 }
 
 @media (max-width: 640px) {
   .app-shell {
+    display: flex;
+    flex-direction: column;
     gap: 14px;
     padding: 10px;
+  }
+
+  .board-column,
+  .coach-column {
+    display: contents;
+  }
+
+  .top-bar {
+    order: 1;
+  }
+
+  .board-wrap {
+    order: 2;
+  }
+
+  .board-tools {
+    order: 3;
+  }
+
+  .suggestions-card {
+    order: 4;
+  }
+
+  .lesson-card {
+    order: 5;
+  }
+
+  .settings-details {
+    order: 6;
+  }
+
+  .share-details {
+    order: 7;
+  }
+
+  .model-details {
+    order: 8;
+  }
+
+  .history-card {
+    order: 9;
+  }
+
+  .top-bar,
+  .board-wrap,
+  .board-tools,
+  .suggestions-card,
+  .lesson-card,
+  .settings-details,
+  .share-details,
+  .model-details,
+  .history-card {
+    width: 100%;
   }
 
   .top-bar,
@@ -571,8 +693,12 @@ code {
 
   .board-frame {
     grid-template-columns: 16px minmax(0, 1fr) 16px;
-    grid-template-rows: minmax(0, 1fr) 20px;
+    grid-template-rows: auto 20px;
     max-width: calc(100vw - 20px);
+  }
+
+  .file-labels {
+    height: 20px;
   }
 
   .square {
@@ -581,16 +707,18 @@ code {
 
   .move-tools {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .move-tools button {
     width: 100%;
-    padding: 0 8px;
+    padding: 0 6px;
+    line-height: 1.15;
   }
 
   .move-tools .primary {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
   .control-panel {
@@ -604,6 +732,14 @@ code {
   .fen-row,
   .share-row {
     grid-template-columns: 1fr;
+  }
+
+  .collapse-panel > summary {
+    align-items: flex-start;
+  }
+
+  .collapse-panel summary small {
+    text-align: left;
   }
 
   .status-pill {
@@ -622,17 +758,12 @@ code {
     font-size: 0.68rem;
   }
 
-  .square .coord {
-    right: 4px;
-    bottom: 4px;
-    font-size: 0.62rem;
-  }
-
   .coach-card,
   .control-panel,
   .editor-panel,
   .share-panel,
-  .move-tools {
+  .move-tools,
+  .collapse-panel > summary {
     padding: 10px;
   }
 }

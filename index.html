@@ -9,7 +9,7 @@
     <title>Chess Coach Board</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body>
     <main class="app-shell">
@@ -33,7 +33,7 @@
           <div class="captured captured-white" id="capturedWhite" aria-label="Captured white pieces"></div>
         </div>
 
-        <div class="move-tools">
+        <div class="move-tools board-tools">
           <button id="newWhite">New: White first</button>
           <button id="newBlack">New: Black first</button>
           <button id="fullReset" class="danger">Full reset</button>
@@ -42,84 +42,7 @@
           <button id="coachMove" class="primary">Coach best move</button>
         </div>
 
-        <section class="control-panel" aria-label="Game controls">
-          <label>
-            White plays
-            <select id="whiteMode">
-              <option value="human">Human with coach</option>
-              <option value="ai">AI auto-play</option>
-              <option value="manual">Manual only</option>
-            </select>
-          </label>
-          <label>
-            Black plays
-            <select id="blackMode">
-              <option value="human">Human with coach</option>
-              <option value="ai">AI auto-play</option>
-              <option value="manual">Manual only</option>
-            </select>
-          </label>
-          <label>
-            Board view
-            <select id="orientation">
-              <option value="w">White at bottom</option>
-              <option value="b">Black at bottom</option>
-            </select>
-          </label>
-          <label>
-            Side to move
-            <select id="sideToMove">
-              <option value="w">White</option>
-              <option value="b">Black</option>
-            </select>
-          </label>
-          <label>
-            Promotion
-            <select id="promotionChoice">
-              <option value="q">Queen</option>
-              <option value="r">Rook</option>
-              <option value="b">Bishop</option>
-              <option value="n">Knight</option>
-            </select>
-          </label>
-          <label class="toggle">
-            <input type="checkbox" id="freeMove" />
-            Free move override
-          </label>
-          <label class="toggle">
-            <input type="checkbox" id="editBoard" />
-            Edit board
-          </label>
-        </section>
-
-        <section class="editor-panel" id="editorPanel" aria-label="Board editor">
-          <div class="editor-heading">
-            <strong>Board editor</strong>
-            <span>Pick a piece, then click a square.</span>
-          </div>
-          <div class="palette" id="palette"></div>
-          <div class="fen-row">
-            <input id="fenInput" type="text" aria-label="FEN input" spellcheck="false" />
-            <button id="loadFen">Load FEN</button>
-          </div>
-        </section>
-
-        <section class="share-panel" aria-label="Share app">
-          <div class="editor-heading">
-            <strong>Share</strong>
-            <span id="shareNotice">Preparing share link...</span>
-          </div>
-          <div class="share-row">
-            <input id="shareUrl" type="text" aria-label="Share URL" readonly />
-            <button id="copyShareLink">Copy link</button>
-            <button id="shareApp" class="primary">Share</button>
-          </div>
-          <p class="share-help">For a phone on the same Wi-Fi, run <code>python3 serve.py</code> and open the Network URL it prints.</p>
-        </section>
-      </section>
-
-      <aside class="coach-column" aria-label="Coach analysis">
-        <section class="coach-card">
+        <section class="coach-card suggestions-card">
           <div class="card-heading">
             <p class="eyebrow">Suggested moves</p>
             <h2>Coach board</h2>
@@ -135,25 +58,120 @@
           <div id="lesson" class="lesson"></div>
         </section>
 
-        <section class="coach-card">
-          <div class="card-heading">
-            <p class="eyebrow">AI board model</p>
-            <h2>Current understanding</h2>
-          </div>
-          <div class="sync-grid">
-            <div>
-              <span class="label">FEN</span>
-              <button id="copyFen" class="text-button">Copy</button>
-              <code id="fenText"></code>
-            </div>
-            <div>
-              <span class="label">Pieces seen</span>
-              <div id="pieceInventory" class="inventory"></div>
-            </div>
-          </div>
-        </section>
+        <details class="collapse-panel settings-details" id="settingsDetails">
+          <summary>
+            <span>Settings</span>
+            <small>Players, board view, turn, promotion, editor</small>
+          </summary>
+          <section class="control-panel" aria-label="Game controls">
+            <label>
+              White plays
+              <select id="whiteMode">
+                <option value="manual" selected>Manual only</option>
+                <option value="human">Human with coach</option>
+                <option value="ai">AI auto-play</option>
+              </select>
+            </label>
+            <label>
+              Black plays
+              <select id="blackMode">
+                <option value="manual" selected>Manual only</option>
+                <option value="human">Human with coach</option>
+                <option value="ai">AI auto-play</option>
+              </select>
+            </label>
+            <label>
+              Board view
+              <select id="orientation">
+                <option value="w">White at bottom</option>
+                <option value="b">Black at bottom</option>
+              </select>
+            </label>
+            <label>
+              Side to move
+              <select id="sideToMove">
+                <option value="w">White</option>
+                <option value="b">Black</option>
+              </select>
+            </label>
+            <label>
+              Promotion
+              <select id="promotionChoice">
+                <option value="q">Queen</option>
+                <option value="r">Rook</option>
+                <option value="b">Bishop</option>
+                <option value="n">Knight</option>
+              </select>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="freeMove" />
+              Free move override
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="editBoard" />
+              Edit board
+            </label>
+          </section>
 
-        <section class="coach-card">
+          <section class="editor-panel" id="editorPanel" aria-label="Board editor">
+            <div class="editor-heading">
+              <strong>Board editor</strong>
+              <span>Pick a piece, then click a square.</span>
+            </div>
+            <div class="palette" id="palette"></div>
+            <div class="fen-row">
+              <input id="fenInput" type="text" aria-label="FEN input" spellcheck="false" />
+              <button id="loadFen">Load FEN</button>
+            </div>
+          </section>
+        </details>
+
+        <details class="collapse-panel share-details" id="shareDetails">
+          <summary>
+            <span>Share</span>
+            <small>Copy or send this app link</small>
+          </summary>
+          <section class="share-panel" aria-label="Share app">
+            <div class="editor-heading">
+              <strong>Share</strong>
+              <span id="shareNotice">Preparing share link...</span>
+            </div>
+            <div class="share-row">
+              <input id="shareUrl" type="text" aria-label="Share URL" readonly />
+              <button id="copyShareLink">Copy link</button>
+              <button id="shareApp" class="primary">Share</button>
+            </div>
+            <p class="share-help">For a phone on the same Wi-Fi, run <code>python3 serve.py</code> and open the Network URL it prints.</p>
+          </section>
+        </details>
+      </section>
+
+      <aside class="coach-column" aria-label="Coach analysis">
+        <details class="collapse-panel model-details" id="modelDetails">
+          <summary>
+            <span>AI board model</span>
+            <small>FEN and piece inventory</small>
+          </summary>
+          <section class="coach-card model-card">
+            <div class="card-heading">
+              <p class="eyebrow">AI board model</p>
+              <h2>Current understanding</h2>
+            </div>
+            <div class="sync-grid">
+              <div>
+                <span class="label">FEN</span>
+                <button id="copyFen" class="text-button">Copy</button>
+                <code id="fenText"></code>
+              </div>
+              <div>
+                <span class="label">Pieces seen</span>
+                <div id="pieceInventory" class="inventory"></div>
+              </div>
+            </div>
+          </section>
+        </details>
+
+        <section class="coach-card history-card">
           <div class="card-heading">
             <p class="eyebrow">Moves</p>
             <h2>History</h2>
@@ -163,6 +181,6 @@
       </aside>
     </main>
 
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=8"></script>
   </body>
 </html>
