@@ -5,9 +5,10 @@ const TYPES = ["k", "q", "r", "b", "n", "p"];
 const WHITE_BACK_RANK = ["r", "n", "b", "q", "k", "b", "n", "r"];
 const PIECE_VALUES = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
 const PIECE_NAMES = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
+const PIECE_SYMBOLS = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const UNICODE = {
-  w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
-  b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
+  w: { ...PIECE_SYMBOLS },
+  b: { ...PIECE_SYMBOLS },
 };
 const STOCKFISH_SCRIPT = "vendor/stockfish/stockfish-nnue-16-single.js";
 const STOCKFISH_WASM = "vendor/stockfish/stockfish-nnue-16-single.wasm";
