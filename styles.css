@@ -497,6 +497,27 @@ h2 {
   margin-top: 12px;
 }
 
+.engine-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.engine-row .text-button {
+  min-height: 30px;
+  border-color: rgba(14, 79, 67, 0.22);
+  background: rgba(255, 253, 248, 0.72);
+  float: none;
+}
+
 .suggestion {
   display: grid;
   gap: 8px;
@@ -527,6 +548,19 @@ h2 {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 800;
+}
+
+.source-pill {
+  justify-self: start;
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: white;
+  background: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .suggestion p,
@@ -740,6 +774,11 @@ code {
 
   .collapse-panel summary small {
     text-align: left;
+  }
+
+  .engine-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .status-pill {

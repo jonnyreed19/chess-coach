@@ -17,6 +17,7 @@ class Handler(SimpleHTTPRequestHandler):
         **SimpleHTTPRequestHandler.extensions_map,
         ".webmanifest": "application/manifest+json",
         ".svg": "image/svg+xml",
+        ".wasm": "application/wasm",
     }
 
 

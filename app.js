@@ -9,69 +9,10 @@ const UNICODE = {
   w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
   b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
 };
-
-const PIECE_SQUARES = {
-  p: [
-    [0, 0, 0, 0, 0, 0, 0, 0],
-    [50, 50, 50, 50, 50, 50, 50, 50],
-    [10, 10, 20, 32, 32, 20, 10, 10],
-    [5, 5, 12, 28, 28, 12, 5, 5],
-    [0, 0, 8, 22, 22, 8, 0, 0],
-    [5, -5, -10, 0, 0, -10, -5, 5],
-    [5, 10, 10, -20, -20, 10, 10, 5],
-    [0, 0, 0, 0, 0, 0, 0, 0],
-  ],
-  n: [
-    [-50, -40, -30, -30, -30, -30, -40, -50],
-    [-40, -20, 0, 5, 5, 0, -20, -40],
-    [-30, 5, 18, 20, 20, 18, 5, -30],
-    [-30, 0, 20, 28, 28, 20, 0, -30],
-    [-30, 5, 20, 28, 28, 20, 5, -30],
-    [-30, 0, 14, 20, 20, 14, 0, -30],
-    [-40, -20, 0, 0, 0, 0, -20, -40],
-    [-50, -40, -30, -30, -30, -30, -40, -50],
-  ],
-  b: [
-    [-20, -10, -10, -10, -10, -10, -10, -20],
-    [-10, 5, 0, 0, 0, 0, 5, -10],
-    [-10, 10, 10, 10, 10, 10, 10, -10],
-    [-10, 0, 10, 15, 15, 10, 0, -10],
-    [-10, 5, 10, 15, 15, 10, 5, -10],
-    [-10, 0, 10, 10, 10, 10, 0, -10],
-    [-10, 0, 0, 0, 0, 0, 0, -10],
-    [-20, -10, -10, -10, -10, -10, -10, -20],
-  ],
-  r: [
-    [0, 0, 5, 10, 10, 5, 0, 0],
-    [-5, 0, 0, 0, 0, 0, 0, -5],
-    [-5, 0, 0, 0, 0, 0, 0, -5],
-    [-5, 0, 0, 0, 0, 0, 0, -5],
-    [-5, 0, 0, 0, 0, 0, 0, -5],
-    [-5, 0, 0, 0, 0, 0, 0, -5],
-    [5, 10, 10, 10, 10, 10, 10, 5],
-    [0, 0, 0, 5, 5, 0, 0, 0],
-  ],
-  q: [
-    [-20, -10, -10, -5, -5, -10, -10, -20],
-    [-10, 0, 5, 0, 0, 0, 0, -10],
-    [-10, 5, 5, 5, 5, 5, 0, -10],
-    [0, 0, 5, 5, 5, 5, 0, -5],
-    [-5, 0, 5, 5, 5, 5, 0, -5],
-    [-10, 0, 5, 5, 5, 5, 0, -10],
-    [-10, 0, 0, 0, 0, 0, 0, -10],
-    [-20, -10, -10, -5, -5, -10, -10, -20],
-  ],
-  k: [
-    [20, 30, 10, 0, 0, 10, 30, 20],
-    [20, 20, 0, 0, 0, 0, 20, 20],
-    [-10, -20, -20, -20, -20, -20, -20, -10],
-    [-20, -30, -30, -40, -40, -30, -30, -20],
-    [-30, -40, -40, -50, -50, -40, -40, -30],
-    [-30, -40, -40, -50, -50, -40, -40, -30],
-    [-30, -40, -40, -50, -50, -40, -40, -30],
-    [-30, -40, -40, -50, -50, -40, -40, -30],
-  ],
-};
+const STOCKFISH_SCRIPT = "vendor/stockfish/stockfish-nnue-16-single.js";
+const STOCKFISH_WASM = "vendor/stockfish/stockfish-nnue-16-single.wasm";
+const STOCKFISH_MOVETIME_MS = 600;
+const STOCKFISH_LINES = 3;
 
 const els = {};
 
@@ -96,13 +37,31 @@ const state = {
   palettePiece: null,
   lastLesson: "",
   suggestions: [],
+  suggestionFen: "",
+  suggestionSource: "stockfish",
   aiTimer: null,
+};
+
+const stockfish = {
+  worker: null,
+  ready: false,
+  loading: false,
+  failed: false,
+  searching: false,
+  searchId: 0,
+  fen: "",
+  color: "w",
+  lines: new Map(),
+  debounceTimer: null,
+  startupTimer: null,
+  status: "Chess engine starting...",
 };
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   buildPalette();
   bindEvents();
+  initStockfish();
   syncControls();
   refresh("Welcome. Choose a side, ask for a coach move, or make the first move on the board.");
   registerOfflineCache();
@@ -138,6 +97,8 @@ function bindElements() {
     "fenInput",
     "loadFen",
     "suggestions",
+    "engineStatus",
+    "runEngine",
     "lesson",
     "fenText",
     "copyFen",
@@ -163,6 +124,7 @@ function bindEvents() {
     refresh("Board flipped. The AI model stayed tied to the same real squares.");
   });
   els.coachMove.addEventListener("click", () => playCoachMove());
+  els.runEngine.addEventListener("click", () => requestStockfishAnalysis(true));
   els.whiteMode.addEventListener("change", (event) => {
     state.whiteMode = event.target.value;
     refresh(`${colorName("w")} is now set to ${modeName(state.whiteMode)}.`);
@@ -260,6 +222,8 @@ function fullReset() {
   state.palettePiece = null;
   state.lastLesson = "";
   state.suggestions = [];
+  state.suggestionFen = "";
+  state.suggestionSource = "stockfish";
   state.aiTimer = null;
   [els.settingsDetails, els.shareDetails, els.modelDetails].forEach((panel) => {
     if (panel) panel.open = false;
@@ -312,7 +276,12 @@ function refresh(message = "") {
   clearTimeout(state.aiTimer);
   if (state.selected === null) state.legalTargets = [];
   syncControls();
-  state.suggestions = analyzePosition(state.turn);
+  const fen = boardToFen();
+  if (state.suggestionFen !== fen || state.suggestionSource !== "stockfish") {
+    state.suggestions = [];
+    state.suggestionFen = fen;
+    state.suggestionSource = "stockfish";
+  }
   renderBoard();
   renderCaptured();
   renderSuggestions();
@@ -321,6 +290,7 @@ function refresh(message = "") {
   renderStatus();
   renderSharePanel();
   if (message) renderLesson(message);
+  queueStockfishAnalysis();
   maybeAutoPlay();
 }
 
@@ -448,7 +418,7 @@ function freeTargets(from) {
 
 function commitMove(move, actor) {
   const side = move.piece.color;
-  const beforeSuggestions = analyzePosition(side);
+  const beforeSuggestions = currentSuggestionsFor(side);
   const picked = beforeSuggestions.find((candidate) => sameMove(candidate.move, move));
   const best = beforeSuggestions[0];
   pushHistory(describeMove(move));
@@ -496,7 +466,7 @@ function undo() {
 
 function playCoachMove() {
   if (!state.suggestions.length) {
-    renderLesson("There is no legal coach move in this position.");
+    renderLesson("The engine has not produced a legal coach move for this position yet. Wait for analysis to finish or press Re-analyze.");
     return;
   }
   commitMove(state.suggestions[0].move, "ai");
@@ -507,10 +477,20 @@ function maybeAutoPlay() {
   if (mode !== "ai" || state.editMode) return;
   const legal = generateLegalMoves(state, state.turn);
   if (!legal.length) return;
+  const fen = boardToFen();
+  if (state.suggestionSource !== "stockfish" || state.suggestionFen !== fen || !state.suggestions.length) return;
   state.aiTimer = setTimeout(() => {
     const currentMode = state.turn === "w" ? state.whiteMode : state.blackMode;
     if (currentMode === "ai" && !state.editMode) playCoachMove();
   }, 700);
+}
+
+function currentSuggestionsFor(color) {
+  const fen = boardToFen();
+  if (state.turn === color && state.suggestionFen === fen && state.suggestionSource === "stockfish" && state.suggestions.length) {
+    return state.suggestions;
+  }
+  return [];
 }
 
 function generateLegalMoves(position, color) {
@@ -773,131 +753,251 @@ function rayAttacked(board, rank, file, dr, df, byColor, attackers) {
   return false;
 }
 
-function analyzePosition(color) {
-  const legal = generateLegalMoves(state, color);
-  if (!legal.length) return [];
-  const before = evaluatePosition(state, color);
-  const candidates = legal.map((move) => scoreMove(move, color, before));
-  candidates.sort((a, b) => b.score - a.score);
-  const bestScore = candidates[0]?.score ?? 0;
-  return candidates.slice(0, 6).map((candidate, index) => ({
-    ...candidate,
+function initStockfish() {
+  if (stockfish.worker || stockfish.loading || stockfish.failed) return;
+  if (!("Worker" in window) || !("WebAssembly" in window)) {
+    stockfish.failed = true;
+    setStockfishStatus("Stockfish is required, but this browser cannot run the engine worker.");
+    renderSuggestions();
+    return;
+  }
+
+  stockfish.loading = true;
+  setStockfishStatus("Loading chess engine...");
+  try {
+    const scriptUrl = new URL(STOCKFISH_SCRIPT, window.location.href).href;
+    const wasmUrl = new URL(STOCKFISH_WASM, window.location.href).href;
+    stockfish.worker = new Worker(`${scriptUrl}#${encodeURIComponent(wasmUrl)},worker`);
+    stockfish.worker.addEventListener("message", handleStockfishMessage);
+    stockfish.worker.addEventListener("error", () => {
+      stockfish.failed = true;
+      stockfish.ready = false;
+      stockfish.loading = false;
+      stockfish.searching = false;
+      setStockfishStatus("Stockfish could not load. Suggestions are paused.");
+      renderSuggestions();
+    });
+    stockfishPost("uci");
+    stockfish.startupTimer = setTimeout(() => {
+      if (!stockfish.ready) {
+        if (stockfish.worker) stockfish.worker.terminate();
+        stockfish.worker = null;
+        stockfish.failed = true;
+        stockfish.loading = false;
+        stockfish.searching = false;
+        setStockfishStatus("Stockfish worker stayed quiet. Suggestions are paused.");
+        renderSuggestions();
+      }
+    }, 4500);
+  } catch {
+    stockfish.failed = true;
+    stockfish.loading = false;
+    setStockfishStatus("Stockfish could not start. Suggestions are paused.");
+    renderSuggestions();
+  }
+}
+
+function stockfishPost(command) {
+  if (stockfish.worker) stockfish.worker.postMessage(command);
+}
+
+function handleStockfishMessage(event) {
+  handleStockfishLine(event.data);
+}
+
+function handleStockfishLine(message) {
+  const line = String(message || "").trim();
+  if (!line) return;
+
+  if (line === "uciok") {
+    clearTimeout(stockfish.startupTimer);
+    stockfishPost(`setoption name MultiPV value ${STOCKFISH_LINES}`);
+    stockfishPost("setoption name Use NNUE value false");
+    stockfishPost("isready");
+    return;
+  }
+
+  if (line === "readyok") {
+    stockfish.ready = true;
+    stockfish.loading = false;
+    setStockfishStatus("Engine ready.");
+    queueStockfishAnalysis();
+    return;
+  }
+
+  if (line.startsWith("info ")) {
+    parseStockfishInfo(line);
+    return;
+  }
+
+  if (line.startsWith("bestmove ")) {
+    finishStockfishSearch(line);
+  }
+}
+
+function parseStockfishInfo(line) {
+  if (!stockfish.searching || !line.includes(" pv ")) return;
+  const pv = line.split(" pv ")[1].trim().split(/\s+/).filter(Boolean);
+  if (!pv.length) return;
+  const depth = Number(line.match(/\bdepth (\d+)/)?.[1] || 0);
+  const multipv = Number(line.match(/\bmultipv (\d+)/)?.[1] || 1);
+  const scoreMatch = line.match(/\bscore (cp|mate) (-?\d+)/);
+  if (!scoreMatch) return;
+  stockfish.lines.set(multipv, {
+    depth,
+    multipv,
+    pv,
+    uci: pv[0],
+    scoreType: scoreMatch[1],
+    score: Number(scoreMatch[2]),
+    numeric: scoreMatch[1] === "mate" ? mateToCentipawns(Number(scoreMatch[2])) : Number(scoreMatch[2]),
+  });
+}
+
+function finishStockfishSearch(line) {
+  if (!stockfish.searching) return;
+  if (line.includes("(none)")) {
+    stockfish.searching = false;
+    setStockfishStatus("Stockfish sees no legal move in this position.");
+    return;
+  }
+  stockfish.searching = false;
+  if (stockfish.fen !== boardToFen() || stockfish.color !== state.turn) return;
+  const suggestions = stockfishSuggestionsFromLines();
+  if (!suggestions.length) {
+    state.suggestions = [];
+    state.suggestionFen = stockfish.fen;
+    state.suggestionSource = "stockfish";
+    renderSuggestions();
+    setStockfishStatus("Stockfish finished, but no legal engine line matched this board.");
+    return;
+  }
+  state.suggestions = suggestions;
+  state.suggestionFen = stockfish.fen;
+  state.suggestionSource = "stockfish";
+  renderSuggestions();
+  setStockfishStatus("Analysis complete.");
+  if (els.lesson?.textContent.includes("Waiting for analysis.") || els.lesson?.textContent.includes("Waiting for Stockfish.")) {
+    renderLesson("The board was refreshed and the engine calculated the best candidates.");
+  }
+  maybeAutoPlay();
+}
+
+function queueStockfishAnalysis() {
+  clearTimeout(stockfish.debounceTimer);
+  stockfish.debounceTimer = setTimeout(() => requestStockfishAnalysis(false), 90);
+}
+
+function requestStockfishAnalysis(force) {
+  clearTimeout(stockfish.debounceTimer);
+  if (!isStockfishPositionReady()) {
+    setStockfishStatus("Stockfish needs one white king and one black king.");
+    return;
+  }
+  if (!generateLegalMoves(state, state.turn).length) {
+    setStockfishStatus("Stockfish sees no legal move in this position.");
+    return;
+  }
+  if (!stockfish.worker && !stockfish.failed) initStockfish();
+  if (stockfish.failed) {
+    setStockfishStatus("Stockfish is unavailable. Suggestions are paused.");
+    renderSuggestions();
+    return;
+  }
+  if (!stockfish.ready) {
+    setStockfishStatus("Loading chess engine...");
+    return;
+  }
+
+  const fen = boardToFen();
+  if (!force && stockfish.searching && stockfish.fen === fen) return;
+  if (stockfish.searching) stockfishPost("stop");
+  stockfish.searching = true;
+  stockfish.searchId += 1;
+  stockfish.fen = fen;
+  stockfish.color = state.turn;
+  stockfish.lines = new Map();
+  setStockfishStatus("Analyzing this position...");
+  renderSuggestions();
+  stockfishPost(`position fen ${fen}`);
+  stockfishPost(`go movetime ${STOCKFISH_MOVETIME_MS}`);
+}
+
+function stockfishSuggestionsFromLines() {
+  const legal = generateLegalMoves(state, state.turn);
+  const entries = [...stockfish.lines.values()]
+    .sort((a, b) => a.multipv - b.multipv)
+    .slice(0, STOCKFISH_LINES);
+  const converted = entries.map((entry) => {
+    const move = moveFromUciInPosition(state, entry.uci, legal);
+    if (!move) return null;
+    const after = previewAfter(move);
+    const strongestReply = entry.pv[1] ? moveFromUciInPosition(after, entry.pv[1]) : null;
+    const reasons = moveReasons(move, state, after, state.turn);
+    const lineReason = stockfishLineReason(strongestReply);
+    if (lineReason) reasons.unshift(lineReason);
+    return {
+      move,
+      score: entry.numeric,
+      delta: entry.numeric,
+      engine: true,
+      engineDepth: entry.depth,
+      engineGap: 0,
+      engineScore: entry.score,
+      engineScoreType: entry.scoreType,
+      enginePv: entry.pv,
+      strongestReply,
+      replyPenalty: 0,
+      reasons: reasons.slice(0, 4),
+      concerns: moveConcerns(move, state, after, state.turn, strongestReply, 0),
+    };
+  }).filter(Boolean);
+
+  if (!converted.length) return [];
+  const bestNumeric = converted[0].score;
+  return converted.map((item, index) => ({
+    ...item,
     rank: index + 1,
-    gap: bestScore - candidate.score,
+    gap: Math.max(0, bestNumeric - item.score),
+    engineGap: Math.max(0, bestNumeric - item.score),
+    replyPenalty: Math.max(0, bestNumeric - item.score),
   }));
 }
 
-function scoreMove(move, color, beforeScore) {
-  const next = clonePosition(state);
-  applyMove(next, move, { silent: true });
-  const opponent = opposite(color);
-  const opponentMoves = generateLegalMoves(next, opponent);
-  const gameOverScore = terminalScore(next, color, opponentMoves);
-  let score;
-  let replyPenalty = 0;
-  let strongestReply = null;
-  if (gameOverScore !== null) {
-    score = gameOverScore;
-  } else {
-    const immediate = evaluatePosition(next, color);
-    let worstReply = immediate;
-    opponentMoves.slice(0, 42).forEach((reply) => {
-      const replyPosition = clonePosition(next);
-      applyMove(replyPosition, reply, { silent: true });
-      const replyScore = evaluatePosition(replyPosition, color);
-      if (replyScore < worstReply) {
-        worstReply = replyScore;
-        strongestReply = reply;
-      }
-    });
-    replyPenalty = immediate - worstReply;
-    score = worstReply + moveHeuristic(move, next, color);
+function stockfishLineReason(reply) {
+  if (reply) {
+    return `Likely reply to study: ${describeMove(reply)}.`;
   }
-  return {
-    move,
-    score,
-    delta: score - beforeScore,
-    replyPenalty,
-    strongestReply,
-    reasons: moveReasons(move, state, next, color),
-    concerns: moveConcerns(move, state, next, color, strongestReply, replyPenalty),
-  };
+  return "";
 }
 
-function terminalScore(position, color, opponentMoves) {
-  const opponent = opposite(color);
-  if (opponentMoves.length) return null;
-  if (isInCheck(position.board, opponent)) return 100000;
-  return -40;
+function moveFromUciInPosition(position, uci, legalMoves) {
+  if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(uci || "")) return null;
+  const from = squareIndex(uci.slice(0, 2));
+  const to = squareIndex(uci.slice(2, 4));
+  const promotion = uci[4]?.toLowerCase() || null;
+  const piece = position.board[from];
+  if (!piece) return null;
+  const moves = legalMoves || generateLegalMoves(position, piece.color);
+  return moves.find((move) => move.from === from && move.to === to && (move.promotion || null) === promotion)
+    || moves.find((move) => move.from === from && move.to === to)
+    || null;
 }
 
-function evaluatePosition(position, perspective) {
-  let score = 0;
-  position.board.forEach((piece, idx) => {
-    if (!piece) return;
-    const sign = piece.color === perspective ? 1 : -1;
-    const { rank, file } = coords(idx);
-    const tableRank = piece.color === "w" ? rank : 7 - rank;
-    score += sign * (PIECE_VALUES[piece.type] + PIECE_SQUARES[piece.type][tableRank][file]);
-    if (piece.type === "p" && isPassedPawn(position.board, idx, piece)) score += sign * 24;
-    if (piece.type === "b") score += sign * 6;
-  });
-
-  score += centerControl(position.board, perspective) * 8;
-  score -= centerControl(position.board, opposite(perspective)) * 8;
-  score += developmentScore(position.board, perspective);
-  score -= developmentScore(position.board, opposite(perspective));
-  if (isInCheck(position.board, opposite(perspective))) score += 42;
-  if (isInCheck(position.board, perspective)) score -= 60;
-  return score;
+function isStockfishPositionReady() {
+  const whiteKings = state.board.filter((piece) => piece?.color === "w" && piece.type === "k").length;
+  const blackKings = state.board.filter((piece) => piece?.color === "b" && piece.type === "k").length;
+  return whiteKings === 1 && blackKings === 1;
 }
 
-function moveHeuristic(move, next, color) {
-  let score = 0;
-  if (move.captured) score += PIECE_VALUES[move.captured.type] * 0.08;
-  if (move.promotion) score += PIECE_VALUES[move.promotion] * 0.15;
-  if (move.castle) score += 48;
-  if (isInCheck(next.board, opposite(color))) score += 36;
-  const to = squareName(move.to);
-  if (["d4", "e4", "d5", "e5"].includes(to)) score += 20;
-  if (move.piece.type === "n" || move.piece.type === "b") {
-    const fromRank = move.piece.color === "w" ? 7 : 0;
-    if (coords(move.from).rank === fromRank) score += 18;
-  }
-  if (isSquareAttacked(next.board, move.to, opposite(color)) && move.piece.type !== "k") score -= PIECE_VALUES[move.piece.type] * 0.18;
-  return score;
+function mateToCentipawns(mate) {
+  const sign = mate >= 0 ? 1 : -1;
+  return sign * (100000 - Math.min(Math.abs(mate), 99) * 1000);
 }
 
-function centerControl(board, color) {
-  return [squareIndex("d4"), squareIndex("e4"), squareIndex("d5"), squareIndex("e5")]
-    .filter((square) => isSquareAttacked(board, square, color)).length;
-}
-
-function developmentScore(board, color) {
-  const homeRank = color === "w" ? 7 : 0;
-  let score = 0;
-  [1, 2, 5, 6].forEach((file) => {
-    const piece = board[indexOf(homeRank, file)];
-    if (!piece || piece.color !== color) score += 10;
-  });
-  const kingStart = board[indexOf(homeRank, 4)];
-  if (!kingStart || kingStart.type !== "k" || kingStart.color !== color) score += 16;
-  return score;
-}
-
-function isPassedPawn(board, idx, piece) {
-  const { rank, file } = coords(idx);
-  const direction = piece.color === "w" ? -1 : 1;
-  let r = rank + direction;
-  while (inBounds(r, file)) {
-    for (const f of [file - 1, file, file + 1]) {
-      if (!inBounds(r, f)) continue;
-      const target = board[indexOf(r, f)];
-      if (target?.type === "p" && target.color !== piece.color) return false;
-    }
-    r += direction;
-  }
-  return true;
+function setStockfishStatus(message) {
+  stockfish.status = message;
+  if (els.engineStatus) els.engineStatus.textContent = message;
 }
 
 function moveReasons(move, before, after, color) {
@@ -1006,20 +1106,46 @@ function renderSuggestions() {
     els.suggestions.innerHTML = `<div class="suggestion best"><p><strong>${check ? "Checkmate." : "Stalemate."}</strong> No legal moves are available for ${colorName(color).toLowerCase()}.</p></div>`;
     return;
   }
+  if (!state.suggestions.length) {
+    els.suggestions.innerHTML = `<div class="suggestion empty"><p><strong>${escapeHtml(stockfishSuggestionHeading())}</strong> ${escapeHtml(stockfishSuggestionMessage())}</p></div>`;
+    return;
+  }
   els.suggestions.innerHTML = state.suggestions.slice(0, 3).map((item, index) => {
     const move = item.move;
-    const reasons = item.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
+    const reasons = suggestionDetails(item).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
     return `
-      <article class="suggestion ${index === 0 ? "best" : ""}">
+      <article class="suggestion ${index === 0 ? "best" : ""} ${item.engine ? "engine" : ""}">
         <div class="suggestion-top">
           <span class="move-name">${index + 1}. ${escapeHtml(describeMove(move))}</span>
-          <span class="score">${formatScore(item.delta)}</span>
+          <span class="score">${escapeHtml(suggestionScoreText(item))}</span>
         </div>
+        <span class="source-pill">Stockfish</span>
         <p>${escapeHtml(coachSummary(item))}</p>
-        <ul>${reasons}</ul>
+        ${reasons ? `<ul>${reasons}</ul>` : ""}
       </article>
     `;
   }).join("");
+}
+
+function suggestionDetails(item) {
+  const primary = primaryMoveReason(item);
+  return (item.reasons || []).filter((reason) => reason !== primary).slice(0, 3);
+}
+
+function stockfishSuggestionHeading() {
+  if (!isStockfishPositionReady()) return "Stockfish needs both kings.";
+  if (stockfish.failed) return "Stockfish is unavailable.";
+  if (stockfish.searching) return "Analyzing this position.";
+  if (stockfish.loading || !stockfish.ready) return "Loading chess engine.";
+  return "Awaiting analysis.";
+}
+
+function stockfishSuggestionMessage() {
+  if (!isStockfishPositionReady()) return "Place exactly one white king and one black king, then Stockfish can calculate legal moves.";
+  if (stockfish.failed) return "This coach now requires Stockfish, so no non-Stockfish recommendations are shown.";
+  if (stockfish.searching) return "The suggestions will appear here as soon as the engine finishes calculating this board.";
+  if (stockfish.loading || !stockfish.ready) return "The browser engine is starting. This can take a few seconds the first time.";
+  return "Press Re-analyze to calculate move suggestions for this position.";
 }
 
 function renderLesson(message) {
@@ -1030,7 +1156,7 @@ function renderLesson(message) {
   const best = state.suggestions[0];
   const teacher = best
     ? `<p><strong>Best candidate:</strong> ${escapeHtml(describeMove(best.move))}. ${escapeHtml(coachSummary(best))}</p>`
-    : `<p><strong>No legal move recommendation</strong> is available from this board state.</p>`;
+    : `<p><strong>Waiting for analysis.</strong> Recommendations appear after the engine analyzes this board.</p>`;
   setLesson(`
     <p>${escapeHtml(message)}</p>
     ${teacher}
@@ -1050,16 +1176,20 @@ function humanMoveLesson(move, picked, best, allSuggestions) {
     `;
   }
   if (!best) {
-    return `<p><strong>You played ${escapeHtml(moveText)}.</strong> The game has no legal continuation to compare against.</p>`;
+    return `
+      <p><strong>You played ${escapeHtml(moveText)}.</strong> The engine had not finished analyzing the previous position, so I cannot honestly grade that move yet.</p>
+      <p>The board has been refreshed from the new piece placement, and the next recommendation is being calculated now.</p>
+    `;
   }
   const rank = picked ? allSuggestions.findIndex((candidate) => sameMove(candidate.move, move)) + 1 : -1;
-  const scoreGap = picked ? best.score - picked.score : 120;
+  const scoreGap = picked ? best.score - picked.score : 180;
   const bestText = describeMove(best.move);
   const moveReasonsText = moveReasons(move, state, previewAfter(move), move.piece.color).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
+  const coachName = "the engine";
 
   if (sameMove(best.move, move) || scoreGap < 35) {
     return `
-      <p><strong>Good classroom choice: ${escapeHtml(moveText)}.</strong> This is ${sameMove(best.move, move) ? "the coach's top move" : "close enough to the top move that it fits the same plan"}.</p>
+      <p><strong>Good classroom choice: ${escapeHtml(moveText)}.</strong> This is ${sameMove(best.move, move) ? `${coachName}'s top move` : "close enough to the top move that it fits the same plan"}.</p>
       <ul>${moveReasonsText}</ul>
       <p>Notice the habit: you improved a piece or tactic while keeping the opponent's reply in mind. That is exactly how strong move selection feels.</p>
     `;
@@ -1067,7 +1197,7 @@ function humanMoveLesson(move, picked, best, allSuggestions) {
 
   const gapText = scoreGap > 220 ? "a large difference" : "a noticeable difference";
   return `
-    <p><strong>You played ${escapeHtml(moveText)}.</strong> It is playable, but the coach preferred <strong>${escapeHtml(bestText)}</strong>; the evaluation saw ${gapText} between them.</p>
+    <p><strong>You played ${escapeHtml(moveText)}.</strong> It is playable, but ${escapeHtml(coachName)} preferred <strong>${escapeHtml(bestText)}</strong>; the evaluation saw ${gapText} between them.</p>
     <ul>${moveReasonsText}</ul>
     <p><strong>Why it was not optimal:</strong> ${escapeHtml(nonOptimalReason(move, best))}</p>
     <p><strong>Student takeaway:</strong> before moving, ask: does my move improve a piece, meet the opponent's threat, and create a new problem for them? The best move did more of those jobs at once.</p>
@@ -1075,7 +1205,7 @@ function humanMoveLesson(move, picked, best, allSuggestions) {
 }
 
 function aiMoveLesson(move, picked) {
-  const item = picked || { reasons: moveReasons(move, state, previewAfter(move), move.piece.color), delta: 0 };
+  const item = picked || { reasons: [`The engine selected ${describeMove(move)} from its current calculated line.`], delta: 0, engine: true };
   const reasons = item.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
   return `
     <p><strong>${colorName(move.piece.color)} AI played ${escapeHtml(describeMove(move))}.</strong></p>
@@ -1103,8 +1233,14 @@ function explainIllegalMove(from, to) {
 }
 
 function coachSummary(item) {
-  const idea = plainSentence(item.reasons?.[0] || "it improves one of your pieces");
+  const idea = plainSentence(primaryMoveReason(item) || "it improves one of your pieces");
   const concern = plainSentence(item.concerns?.[0] || "");
+  if (item.engine) {
+    if (item.rank === 1) return `Best choice: ${idea}${concern ? ` Watch for ${concern}.` : "."}`;
+    if (item.engineGap > 120) return `Riskier alternative: it trails the best choice by about ${formatPawns(item.engineGap)}. Main concern: ${concern || idea}.`;
+    if (item.engineGap > 35) return `Playable alternative: a little behind the best choice. Check this: ${concern || idea}.`;
+    return `Close alternative: ${idea}${concern ? ` Watch for ${concern}.` : "."}`;
+  }
   if (item.delta > 250) return `This creates a major swing because ${idea}.`;
   if (item.delta > 80) return `This is strong because ${idea}${concern ? ` Watch for this reply: ${concern}.` : "."}`;
   if (item.delta > 20) return `This makes steady progress because ${idea}${concern ? ` Main thing to check: ${concern}.` : "."}`;
@@ -1114,6 +1250,12 @@ function coachSummary(item) {
   return concern
     ? `This move is legal, but the concern is that ${concern}.`
     : `This move is legal, but it does not improve activity, king safety, or pressure as much as the higher-ranked choices.`;
+}
+
+function primaryMoveReason(item) {
+  const reasons = item.reasons || [];
+  if (!item.engine) return reasons[0];
+  return reasons.find((reason) => !reason.startsWith("Likely reply to study:")) || reasons[0];
 }
 
 function plainSentence(text) {
@@ -1421,6 +1563,15 @@ function formatScore(delta) {
   const pawns = delta / 100;
   if (Math.abs(pawns) < 0.05) return "≈ even";
   return `${pawns > 0 ? "+" : ""}${pawns.toFixed(2)}`;
+}
+
+function suggestionScoreText(item) {
+  if (!item.engine) return formatScore(item.delta);
+  if (item.engineScoreType === "mate") {
+    const mateText = Math.abs(item.engineScore);
+    return item.engineScore > 0 ? `mate in ${mateText}` : `mated in ${mateText}`;
+  }
+  return formatScore(item.engineScore);
 }
 
 function formatPawns(centipawns) {

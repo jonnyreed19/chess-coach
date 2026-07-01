@@ -1,11 +1,14 @@
-const CACHE_NAME = "chess-coach-v8";
+const CACHE_NAME = "chess-coach-v17";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=8",
-  "./app.js?v=8",
+  "./styles.css?v=17",
+  "./app.js?v=17",
   "./manifest.webmanifest",
   "./icon.svg",
+  "./vendor/stockfish/stockfish-nnue-16-single.js",
+  "./vendor/stockfish/stockfish-nnue-16-single.wasm",
+  "./vendor/stockfish/license.txt",
 ];
 
 self.addEventListener("install", (event) => {
