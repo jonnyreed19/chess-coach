@@ -17,6 +17,8 @@ const STOCKFISH_LINES = 3;
 const STOCKFISH_STARTUP_TIMEOUT_MS = 12000;
 const STOCKFISH_MAX_STARTUP_ATTEMPTS = 3;
 const STOCKFISH_RETRY_DELAY_MS = 700;
+const SAVED_STATE_KEY = "chess-coach-board-state-v1";
+const MAX_SAVED_HISTORY = 100;
 
 const els = {};
 
@@ -69,9 +71,12 @@ document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   buildPalette();
   bindEvents();
+  const restored = restoreSavedState();
   initStockfish();
   syncControls();
-  refresh("Welcome. Choose a side, ask for a coach move, or make the first move on the board.");
+  refresh(restored
+    ? "Restored your saved board from this browser."
+    : "Welcome. Choose a side, ask for a coach move, or make the first move on the board.");
   registerOfflineCache();
 });
 
@@ -110,6 +115,8 @@ function bindElements() {
     "lesson",
     "fenText",
     "copyFen",
+    "modelCopyBlock",
+    "copyModelBlock",
     "shareNotice",
     "shareUrl",
     "copyShareLink",
@@ -177,6 +184,7 @@ function bindEvents() {
       setLesson(`<p><strong>Current FEN:</strong> <code>${escapeHtml(fen)}</code></p>`);
     }
   });
+  els.copyModelBlock.addEventListener("click", () => copyModelBlock());
   els.copyShareLink.addEventListener("click", () => copyShareLink());
   els.shareApp.addEventListener("click", () => shareAppLink());
 }
@@ -298,6 +306,7 @@ function refresh(message = "") {
   renderStatus();
   renderSharePanel();
   if (message) renderLesson(message);
+  saveCurrentState();
   queueStockfishAnalysis();
   maybeAutoPlay();
 }
@@ -1375,6 +1384,7 @@ function renderModel() {
     const text = pieces[color].length ? pieces[color].join(", ") : "No pieces";
     return `<div class="inventory-row"><strong>${colorName(color)}</strong><span>${escapeHtml(text)}</span></div>`;
   }).join("");
+  els.modelCopyBlock.value = boardModelCopyBlock();
 }
 
 function renderStatus() {
@@ -1448,15 +1458,219 @@ async function shareAppLink() {
   await copyShareLink();
 }
 
-async function copyText(text) {
+async function copyModelBlock() {
+  const text = boardModelCopyBlock();
+  const copied = await copyText(text, els.modelCopyBlock);
+  renderLesson(`<p><strong>${copied ? "AI board model copied." : "AI board model selected."}</strong> Paste it into an AI chat to ask for move suggestions, explanations, or a second opinion on the current position.</p>`);
+}
+
+async function copyText(text, fallbackElement = els.shareUrl) {
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    els.shareUrl.focus();
-    els.shareUrl.select();
+    fallbackElement?.focus();
+    fallbackElement?.select();
     return false;
   }
+}
+
+function boardModelCopyBlock() {
+  const pieces = inventoryForAi();
+  return [
+    "Chess position for AI analysis",
+    `FEN: ${boardToFen()}`,
+    `Side to move: ${colorName(state.turn)}`,
+    `Castling rights: ${castlingRightsText()}`,
+    `En passant target: ${state.enPassant === null ? "none" : squareName(state.enPassant)}`,
+    `Halfmove clock: ${state.halfmove}`,
+    `Fullmove number: ${state.fullmove}`,
+    "",
+    "Pieces seen:",
+    `White: ${pieces.w.length ? pieces.w.join("; ") : "No pieces"}`,
+    `Black: ${pieces.b.length ? pieces.b.join("; ") : "No pieces"}`,
+    "",
+    "Ask: Suggest the best moves for the side to move. Explain the tactical ideas, strategic plans, and why weaker candidate moves are less optimal as if teaching a chess student.",
+  ].join("\n");
+}
+
+function castlingRightsText() {
+  const rights = [];
+  if (state.castling.wK) rights.push("White king side");
+  if (state.castling.wQ) rights.push("White queen side");
+  if (state.castling.bK) rights.push("Black king side");
+  if (state.castling.bQ) rights.push("Black queen side");
+  return rights.length ? rights.join(", ") : "none";
+}
+
+function saveCurrentState() {
+  try {
+    window.localStorage.setItem(SAVED_STATE_KEY, JSON.stringify(savedStateSnapshot()));
+  } catch {
+    // Saving is a convenience feature; the board should keep working if storage is blocked.
+  }
+}
+
+function restoreSavedState() {
+  try {
+    const raw = window.localStorage.getItem(SAVED_STATE_KEY);
+    if (!raw) return false;
+    return applySavedState(JSON.parse(raw));
+  } catch {
+    return false;
+  }
+}
+
+function savedStateSnapshot() {
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    board: cloneBoard(state.board),
+    turn: state.turn,
+    castling: { ...state.castling },
+    enPassant: state.enPassant,
+    halfmove: state.halfmove,
+    fullmove: state.fullmove,
+    orientation: state.orientation,
+    history: state.history.slice(-MAX_SAVED_HISTORY).map((entry) => ({
+      board: cloneBoard(entry.board),
+      turn: entry.turn,
+      castling: { ...entry.castling },
+      enPassant: entry.enPassant,
+      halfmove: entry.halfmove,
+      fullmove: entry.fullmove,
+      lastMove: entry.lastMove ? { ...entry.lastMove } : null,
+      moveLog: (entry.moveLog || []).map((move) => ({ ...move })),
+      label: entry.label,
+    })),
+    moveLog: state.moveLog.map((entry) => ({ ...entry })),
+    lastMove: state.lastMove ? { ...state.lastMove } : null,
+    whiteMode: state.whiteMode,
+    blackMode: state.blackMode,
+    promotionChoice: state.promotionChoice,
+    editMode: state.editMode,
+    freeMove: state.freeMove,
+    palettePiece: state.palettePiece ? { ...state.palettePiece } : null,
+  };
+}
+
+function applySavedState(saved) {
+  if (!saved || saved.version !== 1) return false;
+  const board = sanitizeBoard(saved.board);
+  if (!board) return false;
+
+  state.board = board;
+  state.turn = colorOrDefault(saved.turn, "w");
+  state.castling = sanitizeCastling(saved.castling);
+  state.enPassant = boardIndexOrNull(saved.enPassant);
+  state.halfmove = wholeNumberOrDefault(saved.halfmove, 0, 0);
+  state.fullmove = wholeNumberOrDefault(saved.fullmove, 1, 1);
+  state.orientation = colorOrDefault(saved.orientation, "w");
+  state.selected = null;
+  state.legalTargets = [];
+  state.history = sanitizeHistory(saved.history);
+  state.moveLog = sanitizeMoveLog(saved.moveLog);
+  state.lastMove = sanitizeLastMove(saved.lastMove);
+  state.whiteMode = modeOrDefault(saved.whiteMode, "manual");
+  state.blackMode = modeOrDefault(saved.blackMode, "manual");
+  state.promotionChoice = TYPES.includes(saved.promotionChoice) && saved.promotionChoice !== "k" && saved.promotionChoice !== "p"
+    ? saved.promotionChoice
+    : "q";
+  state.editMode = Boolean(saved.editMode);
+  state.freeMove = Boolean(saved.freeMove);
+  state.palettePiece = sanitizePalettePiece(saved.palettePiece);
+  state.lastLesson = "";
+  state.suggestions = [];
+  state.suggestionFen = "";
+  state.suggestionSource = "stockfish";
+  state.aiTimer = null;
+  return true;
+}
+
+function sanitizeHistory(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries.slice(-MAX_SAVED_HISTORY).map((entry) => {
+    const board = sanitizeBoard(entry?.board);
+    if (!board) return null;
+    return {
+      board,
+      turn: colorOrDefault(entry.turn, "w"),
+      castling: sanitizeCastling(entry.castling),
+      enPassant: boardIndexOrNull(entry.enPassant),
+      halfmove: wholeNumberOrDefault(entry.halfmove, 0, 0),
+      fullmove: wholeNumberOrDefault(entry.fullmove, 1, 1),
+      lastMove: sanitizeLastMove(entry.lastMove),
+      moveLog: sanitizeMoveLog(entry.moveLog),
+      label: String(entry.label || "Saved move").slice(0, 80),
+    };
+  }).filter(Boolean);
+}
+
+function sanitizeBoard(board) {
+  if (!Array.isArray(board) || board.length !== 64) return null;
+  const clean = [];
+  for (const piece of board) {
+    const sanitized = sanitizePiece(piece);
+    if (sanitized === undefined) return null;
+    clean.push(sanitized);
+  }
+  return clean;
+}
+
+function sanitizePiece(piece) {
+  if (piece === null || piece === undefined) return null;
+  if (["w", "b"].includes(piece.color) && TYPES.includes(piece.type)) {
+    return { color: piece.color, type: piece.type };
+  }
+  return undefined;
+}
+
+function sanitizePalettePiece(piece) {
+  const sanitized = sanitizePiece(piece);
+  return sanitized === undefined ? null : sanitized;
+}
+
+function sanitizeCastling(castling) {
+  return {
+    wK: Boolean(castling?.wK),
+    wQ: Boolean(castling?.wQ),
+    bK: Boolean(castling?.bK),
+    bQ: Boolean(castling?.bQ),
+  };
+}
+
+function sanitizeMoveLog(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries.slice(-MAX_SAVED_HISTORY * 2).map((entry) => ({
+    text: String(entry?.text || "").slice(0, 80),
+    uci: String(entry?.uci || "").slice(0, 8),
+    color: colorOrDefault(entry?.color, "w"),
+  }));
+}
+
+function sanitizeLastMove(move) {
+  if (!move) return null;
+  const from = boardIndexOrNull(move.from);
+  const to = boardIndexOrNull(move.to);
+  return from === null || to === null ? null : { from, to };
+}
+
+function boardIndexOrNull(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number < 64 ? number : null;
+}
+
+function colorOrDefault(value, fallback) {
+  return ["w", "b"].includes(value) ? value : fallback;
+}
+
+function modeOrDefault(value, fallback) {
+  return ["manual", "human", "ai"].includes(value) ? value : fallback;
+}
+
+function wholeNumberOrDefault(value, fallback, min) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= min ? Math.floor(number) : fallback;
 }
 
 function registerOfflineCache() {
@@ -1590,6 +1804,25 @@ function inventory() {
   result.w.sort((a, b) => a.localeCompare(b));
   result.b.sort((a, b) => a.localeCompare(b));
   return result;
+}
+
+function inventoryForAi() {
+  const result = { w: [], b: [] };
+  state.board.forEach((piece, idx) => {
+    if (!piece) return;
+    result[piece.color].push({
+      order: pieceSortOrder(piece, idx),
+      text: `${PIECE_NAMES[piece.type]} on ${squareName(idx)}`,
+    });
+  });
+  return {
+    w: result.w.sort((a, b) => a.order - b.order).map((item) => item.text),
+    b: result.b.sort((a, b) => a.order - b.order).map((item) => item.text),
+  };
+}
+
+function pieceSortOrder(piece, idx) {
+  return TYPES.indexOf(piece.type) * 100 + idx;
 }
 
 function materialBalance() {

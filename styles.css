@@ -39,13 +39,15 @@ body {
 
 button,
 select,
-input {
+input,
+textarea {
   font: inherit;
 }
 
 button,
 select,
-input[type="text"] {
+input[type="text"],
+textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fffdf8;
@@ -104,6 +106,11 @@ input[type="text"] {
   width: 100%;
   min-height: 44px;
   padding: 0 10px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
 }
 
 .app-shell {
@@ -743,6 +750,37 @@ code {
 .inventory-row span {
   font-family: var(--piece-font);
   font-weight: 400;
+}
+
+.model-copy-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.copy-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.copy-heading .label {
+  margin-bottom: 0;
+}
+
+.copy-heading .text-button {
+  float: none;
+}
+
+.model-copy-block {
+  min-height: 210px;
+  padding: 10px;
+  color: var(--ink);
+  background: #fffdf8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre;
 }
 
 .move-history {

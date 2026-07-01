@@ -1,9 +1,9 @@
-const CACHE_NAME = "chess-coach-v25";
+const CACHE_NAME = "chess-coach-v27";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=25",
-  "./app.js?v=25",
+  "./styles.css?v=27",
+  "./app.js?v=27",
   "./manifest.webmanifest",
   "./icon.svg",
   "./vendor/stockfish/stockfish-nnue-16-single.js",
