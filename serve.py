@@ -3,13 +3,14 @@
 
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import errno
+import os
 import re
 import socket
 import subprocess
 import sys
 
 
-PORT = 4173
+PORT = int(os.environ.get("CHESS_COACH_PORT", "4173"))
 
 
 class Handler(SimpleHTTPRequestHandler):

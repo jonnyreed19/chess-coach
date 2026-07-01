@@ -13,6 +13,9 @@ const STOCKFISH_SCRIPT = "vendor/stockfish/stockfish-nnue-16-single.js";
 const STOCKFISH_WASM = "vendor/stockfish/stockfish-nnue-16-single.wasm";
 const STOCKFISH_MOVETIME_MS = 600;
 const STOCKFISH_LINES = 3;
+const STOCKFISH_STARTUP_TIMEOUT_MS = 12000;
+const STOCKFISH_MAX_STARTUP_ATTEMPTS = 3;
+const STOCKFISH_RETRY_DELAY_MS = 700;
 
 const els = {};
 
@@ -54,6 +57,10 @@ const stockfish = {
   lines: new Map(),
   debounceTimer: null,
   startupTimer: null,
+  retryTimer: null,
+  startupAttempts: 0,
+  unsupported: false,
+  lastError: "",
   status: "Chess engine starting...",
 };
 
@@ -466,7 +473,10 @@ function undo() {
 
 function playCoachMove() {
   if (!state.suggestions.length) {
-    renderLesson("The engine has not produced a legal coach move for this position yet. Wait for analysis to finish or press Re-analyze.");
+    const retryHelp = stockfish.failed
+      ? "Press Re-analyze to restart Stockfish, then the coach can choose a move."
+      : "Wait for analysis to finish or press Re-analyze.";
+    renderLesson(`The engine has not produced a legal coach move for this position yet. ${retryHelp}`);
     return;
   }
   commitMove(state.suggestions[0].move, "ai");
@@ -754,47 +764,93 @@ function rayAttacked(board, rank, file, dr, df, byColor, attackers) {
 }
 
 function initStockfish() {
-  if (stockfish.worker || stockfish.loading || stockfish.failed) return;
+  if (stockfish.worker || stockfish.loading) return;
   if (!("Worker" in window) || !("WebAssembly" in window)) {
+    stockfish.unsupported = true;
     stockfish.failed = true;
-    setStockfishStatus("Stockfish is required, but this browser cannot run the engine worker.");
+    stockfish.ready = false;
+    stockfish.loading = false;
+    stockfish.lastError = "Stockfish requires WebAssembly and Web Workers.";
+    setStockfishStatus("Stockfish cannot run in this browser.");
     renderSuggestions();
     return;
   }
 
+  clearTimeout(stockfish.retryTimer);
+  stockfish.retryTimer = null;
   stockfish.loading = true;
-  setStockfishStatus("Loading chess engine...");
+  stockfish.failed = false;
+  stockfish.ready = false;
+  stockfish.searching = false;
+  stockfish.unsupported = false;
+  stockfish.startupAttempts += 1;
+  const attemptText = stockfish.startupAttempts > 1
+    ? `Restarting chess engine (${stockfish.startupAttempts}/${STOCKFISH_MAX_STARTUP_ATTEMPTS})...`
+    : "Loading chess engine...";
+  setStockfishStatus(attemptText);
   try {
     const scriptUrl = new URL(STOCKFISH_SCRIPT, window.location.href).href;
     const wasmUrl = new URL(STOCKFISH_WASM, window.location.href).href;
     stockfish.worker = new Worker(`${scriptUrl}#${encodeURIComponent(wasmUrl)},worker`);
     stockfish.worker.addEventListener("message", handleStockfishMessage);
-    stockfish.worker.addEventListener("error", () => {
-      stockfish.failed = true;
-      stockfish.ready = false;
-      stockfish.loading = false;
-      stockfish.searching = false;
-      setStockfishStatus("Stockfish could not load. Suggestions are paused.");
-      renderSuggestions();
-    });
+    stockfish.worker.addEventListener("error", () => markStockfishFailure("Stockfish could not load in this browser session.", true));
+    stockfish.worker.addEventListener("messageerror", () => markStockfishFailure("Stockfish sent a response the browser could not read.", true));
     stockfishPost("uci");
     stockfish.startupTimer = setTimeout(() => {
       if (!stockfish.ready) {
-        if (stockfish.worker) stockfish.worker.terminate();
-        stockfish.worker = null;
-        stockfish.failed = true;
-        stockfish.loading = false;
-        stockfish.searching = false;
-        setStockfishStatus("Stockfish worker stayed quiet. Suggestions are paused.");
-        renderSuggestions();
+        markStockfishFailure("Stockfish took too long to respond.", true);
       }
-    }, 4500);
+    }, STOCKFISH_STARTUP_TIMEOUT_MS);
   } catch {
-    stockfish.failed = true;
-    stockfish.loading = false;
-    setStockfishStatus("Stockfish could not start. Suggestions are paused.");
-    renderSuggestions();
+    markStockfishFailure("Stockfish could not start in this browser session.", true);
   }
+}
+
+function resetStockfishWorker() {
+  clearTimeout(stockfish.startupTimer);
+  clearTimeout(stockfish.retryTimer);
+  stockfish.startupTimer = null;
+  stockfish.retryTimer = null;
+  if (stockfish.worker) stockfish.worker.terminate();
+  stockfish.worker = null;
+  stockfish.ready = false;
+  stockfish.loading = false;
+  stockfish.searching = false;
+  stockfish.lines = new Map();
+}
+
+function markStockfishFailure(message, canRetry) {
+  resetStockfishWorker();
+  stockfish.lastError = message;
+  state.suggestions = [];
+  state.suggestionFen = boardToFen();
+  state.suggestionSource = "stockfish";
+
+  if (canRetry && stockfish.startupAttempts < STOCKFISH_MAX_STARTUP_ATTEMPTS && !stockfish.unsupported) {
+    stockfish.failed = false;
+    setStockfishStatus("The chess engine took longer than expected. Retrying...");
+    stockfish.retryTimer = setTimeout(() => initStockfish(), STOCKFISH_RETRY_DELAY_MS);
+    renderSuggestions();
+    return;
+  }
+
+  stockfish.failed = true;
+  setStockfishStatus("Stockfish needs a restart. Press Re-analyze to retry.");
+  renderSuggestions();
+}
+
+function restartStockfish() {
+  resetStockfishWorker();
+  stockfish.failed = false;
+  stockfish.unsupported = false;
+  stockfish.lastError = "";
+  stockfish.startupAttempts = 0;
+  state.suggestions = [];
+  state.suggestionFen = boardToFen();
+  state.suggestionSource = "stockfish";
+  setStockfishStatus("Restarting chess engine...");
+  renderSuggestions();
+  initStockfish();
 }
 
 function stockfishPost(command) {
@@ -818,8 +874,13 @@ function handleStockfishLine(message) {
   }
 
   if (line === "readyok") {
+    clearTimeout(stockfish.startupTimer);
     stockfish.ready = true;
     stockfish.loading = false;
+    stockfish.failed = false;
+    stockfish.unsupported = false;
+    stockfish.startupAttempts = 0;
+    stockfish.lastError = "";
     setStockfishStatus("Engine ready.");
     queueStockfishAnalysis();
     return;
@@ -898,9 +959,16 @@ function requestStockfishAnalysis(force) {
     setStockfishStatus("Stockfish sees no legal move in this position.");
     return;
   }
+  if (force && (stockfish.failed || (stockfish.loading && !stockfish.ready))) {
+    restartStockfish();
+    return;
+  }
   if (!stockfish.worker && !stockfish.failed) initStockfish();
   if (stockfish.failed) {
-    setStockfishStatus("Stockfish is unavailable. Suggestions are paused.");
+    const status = stockfish.unsupported
+      ? "Stockfish cannot run in this browser."
+      : "Stockfish needs a restart. Press Re-analyze to retry.";
+    setStockfishStatus(status);
     renderSuggestions();
     return;
   }
@@ -966,7 +1034,7 @@ function stockfishSuggestionsFromLines() {
 
 function stockfishLineReason(reply) {
   if (reply) {
-    return `Likely reply to study: ${describeMove(reply)}.`;
+    return `Best reply to check: ${describeMove(reply)}.`;
   }
   return "";
 }
@@ -1113,15 +1181,21 @@ function renderSuggestions() {
   els.suggestions.innerHTML = state.suggestions.slice(0, 3).map((item, index) => {
     const move = item.move;
     const reasons = suggestionDetails(item).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
+    const reviewLabel = reviewLabelForItem(item);
     return `
       <article class="suggestion ${index === 0 ? "best" : ""} ${item.engine ? "engine" : ""}">
-        <div class="suggestion-top">
-          <span class="move-name">${index + 1}. ${escapeHtml(describeMove(move))}</span>
-          <span class="score">${escapeHtml(suggestionScoreText(item))}</span>
+        <span class="review-badge ${escapeHtml(reviewClassForLabel(reviewLabel))}">${escapeHtml(reviewLabel)}</span>
+        <div class="move-main">
+          <div class="suggestion-top">
+            <span class="move-name">${index + 1}. ${escapeHtml(describeMove(move))}</span>
+            <span class="score">${escapeHtml(suggestionScoreText(item))}</span>
+          </div>
+          <div class="move-meta">
+            <span class="source-pill">Stockfish</span>
+          </div>
+          <p class="review-line">${escapeHtml(coachSummary(item))}</p>
         </div>
-        <span class="source-pill">Stockfish</span>
-        <p>${escapeHtml(coachSummary(item))}</p>
-        ${reasons ? `<ul>${reasons}</ul>` : ""}
+        ${reasons ? `<ul class="review-detail-list">${reasons}</ul>` : ""}
       </article>
     `;
   }).join("");
@@ -1134,7 +1208,9 @@ function suggestionDetails(item) {
 
 function stockfishSuggestionHeading() {
   if (!isStockfishPositionReady()) return "Stockfish needs both kings.";
-  if (stockfish.failed) return "Stockfish is unavailable.";
+  if (stockfish.unsupported) return "Stockfish cannot run here.";
+  if (stockfish.failed) return "Chess engine needs a retry.";
+  if (stockfish.retryTimer) return "Restarting chess engine.";
   if (stockfish.searching) return "Analyzing this position.";
   if (stockfish.loading || !stockfish.ready) return "Loading chess engine.";
   return "Awaiting analysis.";
@@ -1142,7 +1218,9 @@ function stockfishSuggestionHeading() {
 
 function stockfishSuggestionMessage() {
   if (!isStockfishPositionReady()) return "Place exactly one white king and one black king, then Stockfish can calculate legal moves.";
-  if (stockfish.failed) return "This coach now requires Stockfish, so no non-Stockfish recommendations are shown.";
+  if (stockfish.unsupported) return "This browser needs WebAssembly and Web Workers to run the chess engine. Open the app from the local server link in Safari or Chrome.";
+  if (stockfish.failed) return "Press Re-analyze to restart Stockfish. If this page was opened from a file, use the local server link instead.";
+  if (stockfish.retryTimer) return "Stockfish took longer than expected, so the coach is restarting it now.";
   if (stockfish.searching) return "The suggestions will appear here as soon as the engine finishes calculating this board.";
   if (stockfish.loading || !stockfish.ready) return "The browser engine is starting. This can take a few seconds the first time.";
   return "Press Re-analyze to calculate move suggestions for this position.";
@@ -1155,7 +1233,7 @@ function renderLesson(message) {
   }
   const best = state.suggestions[0];
   const teacher = best
-    ? `<p><strong>Best candidate:</strong> ${escapeHtml(describeMove(best.move))}. ${escapeHtml(coachSummary(best))}</p>`
+    ? `<p><strong>Top engine move:</strong> ${escapeHtml(describeMove(best.move))}. ${escapeHtml(coachSummary(best))}</p>`
     : `<p><strong>Waiting for analysis.</strong> Recommendations appear after the engine analyzes this board.</p>`;
   setLesson(`
     <p>${escapeHtml(message)}</p>
@@ -1185,22 +1263,22 @@ function humanMoveLesson(move, picked, best, allSuggestions) {
   const scoreGap = picked ? best.score - picked.score : 180;
   const bestText = describeMove(best.move);
   const moveReasonsText = moveReasons(move, state, previewAfter(move), move.piece.color).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
-  const coachName = "the engine";
+  const reviewLabel = reviewLabelForGap(scoreGap, sameMove(best.move, move));
 
   if (sameMove(best.move, move) || scoreGap < 35) {
     return `
-      <p><strong>Good classroom choice: ${escapeHtml(moveText)}.</strong> This is ${sameMove(best.move, move) ? `${coachName}'s top move` : "close enough to the top move that it fits the same plan"}.</p>
+      <p><strong>${escapeHtml(reviewLabel)}: ${escapeHtml(moveText)}.</strong> ${sameMove(best.move, move) ? "You matched the top engine move." : "This stays very close to the top engine move."}</p>
       <ul>${moveReasonsText}</ul>
-      <p>Notice the habit: you improved a piece or tactic while keeping the opponent's reply in mind. That is exactly how strong move selection feels.</p>
+      <p><strong>Review note:</strong> keep checking the opponent's best reply before you commit to the move.</p>
     `;
   }
 
-  const gapText = scoreGap > 220 ? "a large difference" : "a noticeable difference";
+  const gapText = formatPawns(scoreGap);
   return `
-    <p><strong>You played ${escapeHtml(moveText)}.</strong> It is playable, but ${escapeHtml(coachName)} preferred <strong>${escapeHtml(bestText)}</strong>; the evaluation saw ${gapText} between them.</p>
+    <p><strong>${escapeHtml(reviewLabel)}: ${escapeHtml(moveText)}.</strong> Better was <strong>${escapeHtml(bestText)}</strong>, with about a ${escapeHtml(gapText)} evaluation swing.</p>
     <ul>${moveReasonsText}</ul>
-    <p><strong>Why it was not optimal:</strong> ${escapeHtml(nonOptimalReason(move, best))}</p>
-    <p><strong>Student takeaway:</strong> before moving, ask: does my move improve a piece, meet the opponent's threat, and create a new problem for them? The best move did more of those jobs at once.</p>
+    <p><strong>Engine note:</strong> ${escapeHtml(nonOptimalReason(move, best))}</p>
+    <p><strong>Review note:</strong> compare your candidate move with the engine move and ask which one creates the bigger threat or solves the more urgent problem.</p>
   `;
 }
 
@@ -1209,7 +1287,7 @@ function aiMoveLesson(move, picked) {
   const reasons = item.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
   return `
     <p><strong>${colorName(move.piece.color)} AI played ${escapeHtml(describeMove(move))}.</strong></p>
-    <p>Coach reasoning: ${escapeHtml(coachSummary(item))}</p>
+    <p>${escapeHtml(coachSummary(item))}</p>
     <ul>${reasons}</ul>
   `;
 }
@@ -1233,13 +1311,13 @@ function explainIllegalMove(from, to) {
 }
 
 function coachSummary(item) {
-  const idea = plainSentence(primaryMoveReason(item) || "it improves one of your pieces");
+  const idea = reviewSentence(primaryMoveReason(item) || "it improves one of your pieces");
   const concern = plainSentence(item.concerns?.[0] || "");
   if (item.engine) {
-    if (item.rank === 1) return `Best choice: ${idea}${concern ? ` Watch for ${concern}.` : "."}`;
-    if (item.engineGap > 120) return `Riskier alternative: it trails the best choice by about ${formatPawns(item.engineGap)}. Main concern: ${concern || idea}.`;
-    if (item.engineGap > 35) return `Playable alternative: a little behind the best choice. Check this: ${concern || idea}.`;
-    return `Close alternative: ${idea}${concern ? ` Watch for ${concern}.` : "."}`;
+    if (item.rank === 1) return `${idea}.${concern ? ` Watch: ${concern}.` : ""}`;
+    if (item.engineGap < 35) return `${idea}. This is practically tied with the best move.${concern ? ` Watch: ${concern}.` : ""}`;
+    if (item.engineGap < 120) return `${idea}.${concern ? ` Check: ${concern}.` : ` It is only ${formatPawns(item.engineGap)} behind the best move.`}`;
+    return `About ${formatPawns(item.engineGap)} worse than the best move. ${concern ? `Main issue: ${concern}.` : `${idea}.`}`;
   }
   if (item.delta > 250) return `This creates a major swing because ${idea}.`;
   if (item.delta > 80) return `This is strong because ${idea}${concern ? ` Watch for this reply: ${concern}.` : "."}`;
@@ -1255,7 +1333,31 @@ function coachSummary(item) {
 function primaryMoveReason(item) {
   const reasons = item.reasons || [];
   if (!item.engine) return reasons[0];
-  return reasons.find((reason) => !reason.startsWith("Likely reply to study:")) || reasons[0];
+  return reasons.find((reason) => !reason.startsWith("Best reply to check:")) || reasons[0];
+}
+
+function reviewLabelForItem(item) {
+  if (!item.engine) return "Coach";
+  return reviewLabelForGap(item.engineGap, item.rank === 1);
+}
+
+function reviewLabelForGap(gap, isBest = false) {
+  if (isBest) return "Best move";
+  if (gap < 50) return "Excellent";
+  if (gap < 100) return "Good";
+  if (gap < 200) return "Inaccuracy";
+  if (gap < 350) return "Mistake";
+  return "Blunder risk";
+}
+
+function reviewClassForLabel(label) {
+  return label.toLowerCase().replace(/\s+/g, "-");
+}
+
+function reviewSentence(text) {
+  const clean = String(text).trim().replace(/[.!?]+$/, "");
+  if (!clean) return "";
+  return clean[0].toUpperCase() + clean.slice(1);
 }
 
 function plainSentence(text) {

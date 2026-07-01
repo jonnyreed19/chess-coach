@@ -9,7 +9,7 @@
     <title>Chess Coach Board</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=17" />
+    <link rel="stylesheet" href="styles.css?v=24" />
   </head>
   <body>
     <main class="app-shell">
@@ -41,26 +41,6 @@
           <button id="flipBoard">Flip board</button>
           <button id="coachMove" class="primary">Coach best move</button>
         </div>
-
-        <section class="coach-card suggestions-card">
-          <div class="card-heading">
-            <p class="eyebrow">Suggested moves</p>
-            <h2>Coach board</h2>
-          </div>
-          <div class="engine-row">
-            <span id="engineStatus">Chess engine starting...</span>
-            <button id="runEngine" class="text-button" type="button">Re-analyze</button>
-          </div>
-          <div id="suggestions" class="suggestions"></div>
-        </section>
-
-        <section class="coach-card lesson-card">
-          <div class="card-heading">
-            <p class="eyebrow">Classroom explanation</p>
-            <h2>Lesson</h2>
-          </div>
-          <div id="lesson" class="lesson"></div>
-        </section>
 
         <details class="collapse-panel settings-details" id="settingsDetails">
           <summary>
@@ -151,6 +131,29 @@
       </section>
 
       <aside class="coach-column" aria-label="Coach analysis">
+        <section class="coach-card suggestions-card review-card">
+          <div class="review-hero">
+            <div>
+              <p class="eyebrow">Game Review</p>
+              <h2>Coach</h2>
+            </div>
+            <span class="coach-avatar" aria-hidden="true">!</span>
+          </div>
+          <div class="engine-row">
+            <span id="engineStatus">Chess engine starting...</span>
+            <button id="runEngine" class="text-button" type="button">Re-analyze</button>
+          </div>
+          <div id="suggestions" class="suggestions"></div>
+        </section>
+
+        <section class="coach-card lesson-card review-card">
+          <div class="card-heading">
+            <p class="eyebrow">Coach Says</p>
+            <h2>Move review</h2>
+          </div>
+          <div id="lesson" class="lesson"></div>
+        </section>
+
         <details class="collapse-panel model-details" id="modelDetails">
           <summary>
             <span>AI board model</span>
@@ -185,6 +188,6 @@
       </aside>
     </main>
 
-    <script src="app.js?v=17"></script>
+    <script src="app.js?v=24"></script>
   </body>
 </html>
