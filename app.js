@@ -17,8 +17,32 @@ const STOCKFISH_LINES = 3;
 const STOCKFISH_STARTUP_TIMEOUT_MS = 12000;
 const STOCKFISH_MAX_STARTUP_ATTEMPTS = 3;
 const STOCKFISH_RETRY_DELAY_MS = 700;
-const SAVED_STATE_KEY = "chess-coach-board-state-v1";
+const SAVED_STATE_KEY = "chess-coach-board-state-v2";
+const LEGACY_SAVED_STATE_KEYS = ["chess-coach-board-state-v1"];
 const MAX_SAVED_HISTORY = 100;
+const MAX_EVAL_HISTORY = 140;
+const OPENING_BOOK = [
+  { moves: [], name: "Starting position", idea: "Develop pieces, fight for the center, and get the king safe." },
+  { moves: ["e2e4"], name: "King's Pawn Opening", idea: "White immediately fights for central space and opens lines for the bishop and queen." },
+  { moves: ["d2d4"], name: "Queen's Pawn Opening", idea: "White builds a solid center and prepares slower piece development." },
+  { moves: ["c2c4"], name: "English Opening", idea: "White controls d5 from the side and often builds pressure before occupying the center." },
+  { moves: ["g1f3"], name: "Reti Opening", idea: "White develops first and waits to decide the central pawn structure." },
+  { moves: ["e2e4", "e7e5"], name: "Open Game", idea: "Both sides take central space, so fast development and king safety matter immediately." },
+  { moves: ["e2e4", "c7c5"], name: "Sicilian Defense", idea: "Black avoids symmetry and challenges White's center from the side." },
+  { moves: ["e2e4", "e7e6"], name: "French Defense", idea: "Black builds a solid pawn chain and prepares to challenge White's center with d5." },
+  { moves: ["e2e4", "c7c6"], name: "Caro-Kann Defense", idea: "Black supports d5 with a sturdy pawn structure and usually accepts a little less space." },
+  { moves: ["e2e4", "d7d5"], name: "Scandinavian Defense", idea: "Black immediately challenges the e4 pawn and accepts early queen activity." },
+  { moves: ["e2e4", "d7d6"], name: "Pirc Defense", idea: "Black lets White build a center, then attacks it with pieces and pawn breaks." },
+  { moves: ["e2e4", "e7e5", "g1f3"], name: "King's Knight Opening", idea: "White develops while attacking the e5 pawn." },
+  { moves: ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"], name: "Ruy Lopez", idea: "White pressures the knight that defends e5 and plays for long-term central control." },
+  { moves: ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"], name: "Italian Game", idea: "White develops quickly and points the bishop toward Black's weak f7 square." },
+  { moves: ["e2e4", "e7e5", "g1f3", "b8c6", "d2d4"], name: "Scotch Game", idea: "White opens the center early and asks Black to solve development problems." },
+  { moves: ["d2d4", "d7d5"], name: "Closed Game", idea: "Both sides share the center, so pawn breaks and piece placement become the main story." },
+  { moves: ["d2d4", "d7d5", "c2c4"], name: "Queen's Gambit", idea: "White offers the c-pawn to pull Black away from the center." },
+  { moves: ["d2d4", "g8f6", "c2c4", "g7g6"], name: "King's Indian Defense", idea: "Black allows White a broad center, then attacks it with pieces and pawn breaks." },
+  { moves: ["d2d4", "g8f6", "c2c4", "e7e6", "b1c3", "f8b4"], name: "Nimzo-Indian Defense", idea: "Black pins the knight and fights White's central control with piece pressure." },
+  { moves: ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "b7b6"], name: "Queen's Indian Defense", idea: "Black develops the bishop to b7 and contests key central light squares." },
+];
 
 const els = {};
 
@@ -45,6 +69,9 @@ const state = {
   suggestions: [],
   suggestionFen: "",
   suggestionSource: "stockfish",
+  evalHistory: [],
+  coachLevel: "intermediate",
+  reviewMistakeIndex: -1,
   aiTimer: null,
 };
 
@@ -95,6 +122,7 @@ function bindElements() {
     "undoMove",
     "flipBoard",
     "coachMove",
+    "copyAiBoardModel",
     "settingsDetails",
     "shareDetails",
     "modelDetails",
@@ -113,10 +141,31 @@ function bindElements() {
     "engineStatus",
     "runEngine",
     "lesson",
+    "evalGraph",
+    "evalSummary",
+    "coachLevel",
+    "materialSummary",
+    "whiteMaterialBar",
+    "blackMaterialBar",
+    "materialDetails",
+    "openingPly",
+    "openingInfo",
+    "planSummary",
+    "whyNotMove",
+    "compareMove",
+    "whyNotResult",
+    "reviewNextMistake",
+    "mistakeList",
+    "coachQuestion",
+    "askCoach",
+    "coachAnswer",
+    "endgamePhase",
+    "endgameHelper",
     "fenText",
     "copyFen",
     "modelCopyBlock",
     "copyModelBlock",
+    "modelClipboardBuffer",
     "shareNotice",
     "shareUrl",
     "copyShareLink",
@@ -131,7 +180,10 @@ function bindElements() {
 function bindEvents() {
   els.newWhite.addEventListener("click", () => newGame("w"));
   els.newBlack.addEventListener("click", () => newGame("b"));
-  els.fullReset.addEventListener("click", fullReset);
+  els.fullReset.addEventListener("click", () => {
+    if (!window.confirm("Full reset clears the board, move history, settings, saved position, and analysis. Continue?")) return;
+    fullReset();
+  });
   els.undoMove.addEventListener("click", undo);
   els.flipBoard.addEventListener("click", () => {
     state.orientation = opposite(state.orientation);
@@ -175,16 +227,22 @@ function bindEvents() {
   els.fenInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadFenFromInput();
   });
-  els.copyFen.addEventListener("click", async () => {
-    const fen = boardToFen();
-    try {
-      await navigator.clipboard.writeText(fen);
-      setLesson(`<p><strong>FEN copied.</strong> The current board model is ready to paste elsewhere.</p>`);
-    } catch {
-      setLesson(`<p><strong>Current FEN:</strong> <code>${escapeHtml(fen)}</code></p>`);
-    }
+  els.copyAiBoardModel.addEventListener("click", () => copyModelBlock());
+  els.coachLevel.addEventListener("change", (event) => {
+    state.coachLevel = event.target.value;
+    refresh(`Coach level set to ${coachLevelName(state.coachLevel)}.`);
   });
-  els.copyModelBlock.addEventListener("click", () => copyModelBlock());
+  els.compareMove.addEventListener("click", () => compareCandidateMove());
+  els.whyNotMove.addEventListener("change", () => compareCandidateMove(false));
+  els.reviewNextMistake.addEventListener("click", () => reviewNextMistake());
+  els.mistakeList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-review-ply]");
+    if (button) reviewMistakeAt(Number(button.dataset.reviewPly));
+  });
+  els.askCoach.addEventListener("click", () => answerCoachQuestion());
+  els.coachQuestion.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) answerCoachQuestion();
+  });
   els.copyShareLink.addEventListener("click", () => copyShareLink());
   els.shareApp.addEventListener("click", () => shareAppLink());
 }
@@ -210,6 +268,8 @@ function newGame(firstSide) {
   state.history = [];
   state.moveLog = [];
   state.lastMove = null;
+  state.evalHistory = [];
+  state.reviewMistakeIndex = -1;
   state.selected = null;
   state.lastLesson = `${colorName(firstSide)} will move first. The AI refreshed from the starting position.`;
   syncControls();
@@ -240,6 +300,8 @@ function fullReset() {
   state.suggestions = [];
   state.suggestionFen = "";
   state.suggestionSource = "stockfish";
+  state.evalHistory = [];
+  state.reviewMistakeIndex = -1;
   state.aiTimer = null;
   [els.settingsDetails, els.shareDetails, els.modelDetails].forEach((panel) => {
     if (panel) panel.open = false;
@@ -284,6 +346,7 @@ function syncControls() {
   els.promotionChoice.value = state.promotionChoice;
   els.freeMove.checked = state.freeMove;
   els.editBoard.checked = state.editMode;
+  els.coachLevel.value = state.coachLevel;
   els.editorPanel.classList.toggle("open", state.editMode);
   if (state.editMode && els.settingsDetails) els.settingsDetails.open = true;
 }
@@ -305,6 +368,8 @@ function refresh(message = "") {
   renderHistory();
   renderStatus();
   renderSharePanel();
+  renderGraphs();
+  renderLearningTools();
   if (message) renderLesson(message);
   saveCurrentState();
   queueStockfishAnalysis();
@@ -358,6 +423,7 @@ function handleSquareClick(idx) {
     pushHistory("Board edit");
     state.board[idx] = state.palettePiece ? { ...state.palettePiece } : null;
     state.selected = null;
+    state.evalHistory = [];
     normalizeCastlingAfterEdit();
     refresh(`Board edited at ${squareName(idx)}. The AI rebuilt its piece map from the new position.`);
     return;
@@ -478,6 +544,7 @@ function undo() {
   state.moveLog = previous.moveLog;
   state.selected = null;
   state.legalTargets = [];
+  state.evalHistory = state.evalHistory.filter((entry) => entry.ply <= state.moveLog.length);
   refresh(`Undid: ${previous.label}. The AI refreshed from the restored board.`);
 }
 
@@ -946,7 +1013,9 @@ function finishStockfishSearch(line) {
   state.suggestions = suggestions;
   state.suggestionFen = stockfish.fen;
   state.suggestionSource = "stockfish";
+  recordEvaluation(suggestions[0]);
   renderSuggestions();
+  renderGraphs();
   setStockfishStatus("Analysis complete.");
   if (els.lesson?.textContent.includes("Waiting for analysis.") || els.lesson?.textContent.includes("Waiting for Stockfish.")) {
     renderLesson("The board was refreshed and the engine calculated the best candidates.");
@@ -1377,14 +1446,473 @@ function plainSentence(text) {
 
 function renderModel() {
   const fen = boardToFen();
-  els.fenText.textContent = fen;
-  els.fenInput.value = fen;
+  if (els.fenText) els.fenText.textContent = fen;
+  if (els.fenInput) els.fenInput.value = fen;
   const pieces = inventory();
-  els.pieceInventory.innerHTML = ["w", "b"].map((color) => {
-    const text = pieces[color].length ? pieces[color].join(", ") : "No pieces";
-    return `<div class="inventory-row"><strong>${colorName(color)}</strong><span>${escapeHtml(text)}</span></div>`;
+  if (els.pieceInventory) {
+    els.pieceInventory.innerHTML = ["w", "b"].map((color) => {
+      const text = pieces[color].length ? pieces[color].join(", ") : "No pieces";
+      return `<div class="inventory-row"><strong>${colorName(color)}</strong><span>${escapeHtml(text)}</span></div>`;
+    }).join("");
+  }
+  if (els.modelCopyBlock) els.modelCopyBlock.value = boardModelCopyBlock();
+  if (els.modelClipboardBuffer) els.modelClipboardBuffer.value = boardModelCopyBlock();
+}
+
+function renderGraphs() {
+  renderEvaluationGraph();
+}
+
+function recordEvaluation(bestSuggestion) {
+  if (!bestSuggestion?.engine) return;
+  const fen = boardToFen();
+  const ply = state.moveLog.length;
+  const score = whitePerspectiveScore(bestSuggestion);
+  const mate = whitePerspectiveMate(bestSuggestion);
+  const entry = {
+    ply,
+    fen,
+    score,
+    mate,
+    label: ply ? state.moveLog[ply - 1]?.uci || `Move ${ply}` : "Start",
+    display: evaluationDisplay(score, mate),
+  };
+  const existingIndex = state.evalHistory.findIndex((item) => item.fen === fen || item.ply === ply);
+  if (existingIndex >= 0) state.evalHistory[existingIndex] = entry;
+  else state.evalHistory.push(entry);
+  state.evalHistory = state.evalHistory
+    .sort((a, b) => a.ply - b.ply)
+    .slice(-MAX_EVAL_HISTORY);
+  saveCurrentState();
+}
+
+function whitePerspectiveScore(item) {
+  const raw = item.engineScoreType === "mate" ? mateToCentipawns(item.engineScore) : item.engineScore;
+  return stockfish.color === "w" ? raw : -raw;
+}
+
+function whitePerspectiveMate(item) {
+  if (item.engineScoreType !== "mate") return null;
+  return stockfish.color === "w" ? item.engineScore : -item.engineScore;
+}
+
+function renderEvaluationGraph() {
+  if (!els.evalGraph || !els.evalSummary) return;
+  const points = state.evalHistory.slice().sort((a, b) => a.ply - b.ply);
+  if (!points.length) {
+    els.evalSummary.textContent = "Waiting for Stockfish";
+    els.evalGraph.innerHTML = `
+      <rect x="0" y="0" width="320" height="150" rx="10" class="eval-bg"></rect>
+      <line x1="18" y1="75" x2="302" y2="75" class="eval-zero"></line>
+      <text x="160" y="80" text-anchor="middle" class="eval-empty">Analysis appears after Stockfish finishes</text>
+    `;
+    return;
+  }
+
+  const width = 320;
+  const height = 150;
+  const pad = 18;
+  const graphWidth = width - pad * 2;
+  const graphHeight = height - pad * 2;
+  const maxAbs = 600;
+  const last = points[points.length - 1];
+  const xFor = (index) => points.length === 1 ? width / 2 : pad + (index / (points.length - 1)) * graphWidth;
+  const yFor = (score) => {
+    const clamped = Math.max(-maxAbs, Math.min(maxAbs, score));
+    return pad + graphHeight / 2 - (clamped / maxAbs) * (graphHeight / 2);
+  };
+  const path = points.map((entry, index) => `${index ? "L" : "M"} ${xFor(index).toFixed(1)} ${yFor(entry.score).toFixed(1)}`).join(" ");
+  const circles = points.map((entry, index) => {
+    const x = xFor(index).toFixed(1);
+    const y = yFor(entry.score).toFixed(1);
+    return `<circle cx="${x}" cy="${y}" r="3.5" class="eval-point"><title>${escapeHtml(entry.label)}: ${escapeHtml(entry.display)}</title></circle>`;
   }).join("");
-  els.modelCopyBlock.value = boardModelCopyBlock();
+
+  els.evalSummary.textContent = last.display;
+  els.evalGraph.innerHTML = `
+    <rect x="0" y="0" width="320" height="150" rx="10" class="eval-bg"></rect>
+    <line x1="${pad}" y1="${pad}" x2="${width - pad}" y2="${pad}" class="eval-guide"></line>
+    <line x1="${pad}" y1="${height / 2}" x2="${width - pad}" y2="${height / 2}" class="eval-zero"></line>
+    <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="eval-guide"></line>
+    <text x="${pad}" y="${pad - 5}" class="eval-label">White +6</text>
+    <text x="${pad}" y="${height - 5}" class="eval-label">Black +6</text>
+    <path d="${path}" class="eval-line"></path>
+    ${circles}
+  `;
+}
+
+function renderLearningTools() {
+  renderMaterialTool();
+  renderOpeningTool();
+  renderPlanTool();
+  renderWhyNotTool();
+  renderMistakeReviewTool();
+  renderEndgameTool();
+}
+
+function renderMaterialTool() {
+  const totals = materialTotals();
+  const combined = Math.max(1, totals.white + totals.black);
+  const whitePct = Math.max(0, Math.round((totals.white / combined) * 100));
+  const blackPct = Math.max(0, 100 - whitePct);
+  const diff = totals.white - totals.black;
+  els.whiteMaterialBar.style.width = `${whitePct}%`;
+  els.blackMaterialBar.style.width = `${blackPct}%`;
+  els.materialSummary.textContent = diff === 0
+    ? "Material even"
+    : `${diff > 0 ? "White" : "Black"} +${Math.abs(diff / 100).toFixed(1)}`;
+  els.materialDetails.textContent = `White ${formatMaterial(totals.white)}. Black ${formatMaterial(totals.black)}. Pawns are 1 point, knights and bishops about 3, rooks 5, queen 9.`;
+}
+
+function renderOpeningTool() {
+  const opening = currentOpening();
+  els.openingPly.textContent = `${state.moveLog.length} ply`;
+  els.openingInfo.innerHTML = `
+    <p><strong>${escapeHtml(opening.name)}</strong></p>
+    <p>${escapeHtml(opening.idea)}</p>
+  `;
+}
+
+function renderPlanTool() {
+  els.planSummary.innerHTML = planSummaryHtml();
+}
+
+function renderWhyNotTool() {
+  const legal = generateLegalMoves(state, state.turn);
+  const fen = boardToFen();
+  const previousValue = els.whyNotMove.value;
+  els.whyNotMove.innerHTML = legal.length
+    ? legal.map((move) => `<option value="${escapeHtml(moveToUci(move))}">${escapeHtml(describeMove(move))}</option>`).join("")
+    : `<option value="">No legal moves</option>`;
+  if (legal.some((move) => moveToUci(move) === previousValue)) els.whyNotMove.value = previousValue;
+  els.compareMove.disabled = !legal.length;
+  if (els.whyNotResult.dataset.fen !== fen) {
+    els.whyNotResult.dataset.fen = fen;
+    els.whyNotResult.textContent = legal.length
+      ? "Choose a legal move to compare it against the engine's current top move."
+      : "No legal move is available in this position.";
+  }
+}
+
+function renderMistakeReviewTool() {
+  const mistakes = mistakeReviewItems();
+  if (!mistakes.length) {
+    els.mistakeList.innerHTML = `<p class="tool-note">No mistakes are tracked yet. Play a few analyzed moves and this list will show inaccuracies, mistakes, and blunders.</p>`;
+    els.reviewNextMistake.disabled = true;
+    return;
+  }
+  els.reviewNextMistake.disabled = false;
+  els.mistakeList.innerHTML = mistakes.map((item, index) => `
+    <article class="mistake-item">
+      <span class="review-badge ${escapeHtml(reviewClassForLabel(item.label))}">${escapeHtml(item.label)}</span>
+      <div>
+        <strong>${escapeHtml(item.moveText)}</strong>
+        <p>${escapeHtml(item.summary)}</p>
+      </div>
+      <button type="button" data-review-ply="${item.ply}" data-review-index="${index}">Show</button>
+    </article>
+  `).join("");
+}
+
+function renderEndgameTool() {
+  const info = endgameInfo();
+  els.endgamePhase.textContent = info.phase;
+  els.endgameHelper.innerHTML = info.lines.map((line, index) => index === 0
+    ? `<p><strong>${escapeHtml(line)}</strong></p>`
+    : `<p>${escapeHtml(line)}</p>`
+  ).join("");
+}
+
+function compareCandidateMove(showLesson = true) {
+  const legal = generateLegalMoves(state, state.turn);
+  const move = moveFromUciInPosition(state, els.whyNotMove.value, legal);
+  if (!move) {
+    els.whyNotResult.textContent = "Choose a legal move first.";
+    return;
+  }
+  const best = currentBestSuggestion();
+  const matching = state.suggestions.find((item) => sameMove(item.move, move));
+  const after = previewAfter(move);
+  const reasons = moveReasons(move, state, after, state.turn);
+  const concerns = moveConcerns(move, state, after, state.turn, matching?.strongestReply || null, matching?.engineGap || 0);
+  let html;
+  if (!best) {
+    html = `
+      <p><strong>${escapeHtml(describeMove(move))}</strong></p>
+      <p>Stockfish has not finished this position yet, so I can explain the move but cannot grade it against the best line.</p>
+      <p>${escapeHtml(reasons[0] || "It is legal, but wait for analysis to judge it accurately.")}</p>
+    `;
+  } else if (sameMove(best.move, move)) {
+    html = `
+      <p><strong>Best move: ${escapeHtml(describeMove(move))}.</strong></p>
+      <p>${escapeHtml(coachSummary(best))}</p>
+      <p>${escapeHtml(coachLevelDetail("It matches the engine's first choice, so the main study task is to understand the follow-up plan instead of searching for a better move."))}</p>
+    `;
+  } else {
+    const gap = matching?.engineGap ?? 180;
+    const label = reviewLabelForGap(gap, false);
+    const concern = concerns[0] || nonOptimalReason(move, best);
+    html = `
+      <p><strong>${escapeHtml(label)}: ${escapeHtml(describeMove(move))}.</strong> Better is <strong>${escapeHtml(describeMove(best.move))}</strong>.</p>
+      <p>${escapeHtml(formatPawns(gap))} behind the top engine move. ${escapeHtml(concern)}</p>
+      <p>${escapeHtml(coachLevelDetail("Compare which move improves a piece, answers the opponent's threat, and creates the bigger problem for the other side."))}</p>
+    `;
+  }
+  els.whyNotResult.dataset.fen = boardToFen();
+  els.whyNotResult.innerHTML = html;
+  if (showLesson) setLesson(html);
+}
+
+function reviewNextMistake() {
+  const mistakes = mistakeReviewItems();
+  if (!mistakes.length) return;
+  state.reviewMistakeIndex = (state.reviewMistakeIndex + 1) % mistakes.length;
+  reviewMistakeAt(mistakes[state.reviewMistakeIndex].ply);
+}
+
+function reviewMistakeAt(ply) {
+  const item = mistakeReviewItems().find((mistake) => mistake.ply === ply);
+  if (!item) return;
+  const parsed = parseFen(item.fen);
+  if (parsed.ok) {
+    pushHistory("Mistake review");
+    state.board = parsed.board;
+    state.turn = parsed.turn;
+    state.castling = parsed.castling;
+    state.enPassant = parsed.enPassant;
+    state.halfmove = parsed.halfmove;
+    state.fullmove = parsed.fullmove;
+    const uci = state.moveLog[ply - 1]?.uci || "";
+    state.lastMove = /^[a-h][1-8][a-h][1-8]/.test(uci) ? { from: squareIndex(uci.slice(0, 2)), to: squareIndex(uci.slice(2, 4)) } : null;
+    state.selected = null;
+    state.legalTargets = [];
+  }
+  const html = `
+    <p><strong>${escapeHtml(item.label)} reviewed: ${escapeHtml(item.moveText)}.</strong></p>
+    <p>${escapeHtml(item.summary)}</p>
+    <p><strong>Study task:</strong> replay the position and ask what the opponent threatens after this move. Then compare it with the engine's recommended move.</p>
+  `;
+  refresh(html);
+}
+
+function answerCoachQuestion() {
+  const question = els.coachQuestion.value.trim();
+  if (!question) {
+    els.coachAnswer.textContent = "Ask about a move, plan, piece, opening, endgame, material, or king safety.";
+    return;
+  }
+  const answer = coachAnswerFor(question);
+  els.coachAnswer.innerHTML = answer;
+  setLesson(answer);
+}
+
+function currentBestSuggestion() {
+  const fen = boardToFen();
+  if (state.suggestionFen === fen && state.suggestionSource === "stockfish" && state.suggestions.length) {
+    return state.suggestions[0];
+  }
+  return null;
+}
+
+function materialTotals() {
+  return state.board.reduce((totals, piece) => {
+    if (!piece || piece.type === "k") return totals;
+    if (piece.color === "w") totals.white += PIECE_VALUES[piece.type];
+    else totals.black += PIECE_VALUES[piece.type];
+    return totals;
+  }, { white: 0, black: 0 });
+}
+
+function formatMaterial(value) {
+  return `${(value / 100).toFixed(1)} points`;
+}
+
+function currentOpening() {
+  const played = state.moveLog.map((entry) => entry.uci);
+  let match = OPENING_BOOK[0];
+  OPENING_BOOK.forEach((opening) => {
+    if (opening.moves.length < match.moves.length) return;
+    const isMatch = opening.moves.every((move, index) => played[index] === move);
+    if (isMatch) match = opening;
+  });
+  if (played.length > 12 && match.moves.length < 4) {
+    return {
+      name: "Middlegame position",
+      idea: "The opening label is no longer the main guide. Use the plan summary, material bar, and engine line to choose a useful plan.",
+      moves: [],
+    };
+  }
+  return match;
+}
+
+function planSummaryHtml() {
+  const best = currentBestSuggestion();
+  const opening = currentOpening();
+  const endgame = endgameInfo();
+  const plan = [];
+  if (best) {
+    plan.push(`Candidate move: ${describeMove(best.move)}.`);
+    plan.push(primaryMoveReason(best) || coachSummary(best));
+  } else {
+    plan.push("Wait for Stockfish to finish, then use the top move as your concrete candidate.");
+  }
+  if (state.moveLog.length <= 10) plan.push(`Opening idea: ${opening.idea}`);
+  if (endgame.isEndgame) plan.push(`Endgame idea: ${endgame.lines[1] || endgame.lines[0]}`);
+  plan.push(kingSafetyPlan(state.turn));
+  return plan.slice(0, coachLevelLimit()).map((line, index) => index === 0
+    ? `<p><strong>${escapeHtml(line)}</strong></p>`
+    : `<p>${escapeHtml(line)}</p>`
+  ).join("");
+}
+
+function kingSafetyPlan(color) {
+  const king = findKing(state.board, color);
+  if (king === null) return "King safety: place both kings before trusting legal-move coaching.";
+  if (isInCheck(state.board, color)) return "King safety: first solve the check, then think about plans.";
+  const attackers = attackersOf(state.board, king, opposite(color)).length;
+  if (attackers) return "King safety: the king is under pressure, so prioritize checks, captures, and defensive resources.";
+  return "King safety: no immediate check is present, so you can compare activity, material, and threats.";
+}
+
+function coachLevelLimit() {
+  if (state.coachLevel === "beginner") return 2;
+  if (state.coachLevel === "advanced") return 5;
+  return 3;
+}
+
+function coachLevelDetail(text) {
+  if (state.coachLevel === "beginner") return text.split(",")[0] || text;
+  if (state.coachLevel === "advanced") return `${text} Also check forcing replies first: checks, captures, threats, and only then quiet improvements.`;
+  return text;
+}
+
+function coachLevelName(level) {
+  if (level === "beginner") return "Beginner";
+  if (level === "advanced") return "Advanced";
+  return "Intermediate";
+}
+
+function mistakeReviewItems() {
+  const points = state.evalHistory.slice().sort((a, b) => a.ply - b.ply);
+  const byPly = new Map(points.map((entry) => [entry.ply, entry]));
+  const items = [];
+  for (const current of points) {
+    if (!current.ply) continue;
+    const previous = byPly.get(current.ply - 1);
+    if (!previous) continue;
+    const mover = current.ply % 2 === 1 ? "w" : "b";
+    const loss = mover === "w" ? previous.score - current.score : current.score - previous.score;
+    if (loss < 80) continue;
+    const label = reviewLabelForGap(loss, false);
+    const move = state.moveLog[current.ply - 1];
+    const moveText = move ? `${current.ply}. ${move.text}` : `Move ${current.ply}`;
+    const side = colorName(mover);
+    items.push({
+      ply: current.ply,
+      fen: current.fen,
+      label,
+      loss,
+      moveText,
+      summary: `${side}'s move changed the evaluation by about ${formatPawns(loss)}. Look for the opponent's strongest reply and compare this with the engine recommendation.`,
+    });
+  }
+  return items;
+}
+
+function endgameInfo() {
+  const pieces = state.board.filter(Boolean);
+  const nonKings = pieces.filter((piece) => piece.type !== "k");
+  const queens = nonKings.filter((piece) => piece.type === "q").length;
+  const rooks = nonKings.filter((piece) => piece.type === "r").length;
+  const minors = nonKings.filter((piece) => piece.type === "b" || piece.type === "n").length;
+  const pawns = nonKings.filter((piece) => piece.type === "p").length;
+  if (nonKings.length > 10 || queens > 1) {
+    return {
+      isEndgame: false,
+      phase: "Middlegame",
+      lines: [
+        "Not an endgame yet.",
+        "Focus on king safety, active pieces, pawn breaks, and the best engine candidate.",
+      ],
+    };
+  }
+  if (rooks) {
+    return {
+      isEndgame: true,
+      phase: "Rook ending",
+      lines: [
+        "Rook-ending rules apply.",
+        "Activate the rook, put it behind passed pawns, and keep your king active without walking into checks.",
+      ],
+    };
+  }
+  if (!rooks && !queens && !minors) {
+    return {
+      isEndgame: true,
+      phase: "King and pawn ending",
+      lines: [
+        "King-and-pawn ending.",
+        "Use opposition, create passed pawns, and calculate pawn races before moving.",
+      ],
+    };
+  }
+  if (minors && pawns <= 6) {
+    return {
+      isEndgame: true,
+      phase: "Minor-piece ending",
+      lines: [
+        "Minor-piece ending.",
+        "Improve king activity, attack pawns on both colors when possible, and avoid trading into a lost pawn race.",
+      ],
+    };
+  }
+  return {
+    isEndgame: true,
+    phase: "Simplified ending",
+    lines: [
+      "Simplified ending.",
+      "Centralize the king, improve the worst piece, and convert material into passed pawns.",
+    ],
+  };
+}
+
+function coachAnswerFor(question) {
+  const q = question.toLowerCase();
+  const best = currentBestSuggestion();
+  const opening = currentOpening();
+  const endgame = endgameInfo();
+  if (q.includes("opening") || q.includes("book")) {
+    return `<p><strong>${escapeHtml(opening.name)}.</strong> ${escapeHtml(opening.idea)}</p>`;
+  }
+  if (q.includes("endgame") || q.includes("ending") || q.includes("pawn race")) {
+    return endgame.lines.map((line, index) => index === 0
+      ? `<p><strong>${escapeHtml(line)}</strong></p>`
+      : `<p>${escapeHtml(line)}</p>`
+    ).join("");
+  }
+  if (q.includes("best") || q.includes("move") || q.includes("play")) {
+    if (!best) return `<p><strong>Wait for analysis.</strong> Stockfish has not finished this position yet.</p>`;
+    return `<p><strong>Best candidate: ${escapeHtml(describeMove(best.move))}.</strong> ${escapeHtml(coachSummary(best))}</p>`;
+  }
+  if (q.includes("plan") || q.includes("idea")) return planSummaryHtml();
+  if (q.includes("material") || q.includes("points")) {
+    const totals = materialTotals();
+    const diff = totals.white - totals.black;
+    return `<p><strong>Material:</strong> ${diff === 0 ? "Even." : `${diff > 0 ? "White" : "Black"} leads by ${formatPawns(Math.abs(diff))}.`}</p>`;
+  }
+  if (q.includes("king") || q.includes("safe") || q.includes("check")) {
+    return `<p><strong>King safety:</strong> ${escapeHtml(kingSafetyPlan(state.turn))}</p>`;
+  }
+  return `
+    <p><strong>Coach answer:</strong> ${escapeHtml(planTextSummary())}</p>
+    <p>${escapeHtml(coachLevelDetail("Use the engine candidate as a guide, but explain it by checking threats, material, king safety, and piece activity."))}</p>
+  `;
+}
+
+function planTextSummary() {
+  const best = currentBestSuggestion();
+  if (best) return `Start by considering ${describeMove(best.move)} because ${plainSentence(coachSummary(best))}.`;
+  return "Start by identifying checks, captures, threats, and your worst-placed piece.";
 }
 
 function renderStatus() {
@@ -1460,7 +1988,8 @@ async function shareAppLink() {
 
 async function copyModelBlock() {
   const text = boardModelCopyBlock();
-  const copied = await copyText(text, els.modelCopyBlock);
+  const fallback = els.modelClipboardBuffer || els.modelCopyBlock || els.fenInput;
+  const copied = await copyText(text, fallback);
   renderLesson(`<p><strong>${copied ? "AI board model copied." : "AI board model selected."}</strong> Paste it into an AI chat to ask for move suggestions, explanations, or a second opinion on the current position.</p>`);
 }
 
@@ -1469,6 +1998,7 @@ async function copyText(text, fallbackElement = els.shareUrl) {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
+    if (fallbackElement && "value" in fallbackElement) fallbackElement.value = text;
     fallbackElement?.focus();
     fallbackElement?.select();
     return false;
@@ -1512,13 +2042,25 @@ function saveCurrentState() {
 }
 
 function restoreSavedState() {
-  try {
-    const raw = window.localStorage.getItem(SAVED_STATE_KEY);
-    if (!raw) return false;
-    return applySavedState(JSON.parse(raw));
-  } catch {
-    return false;
+  const keys = [SAVED_STATE_KEY, ...LEGACY_SAVED_STATE_KEYS];
+  for (const key of keys) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      if (applySavedState(JSON.parse(raw))) {
+        if (key !== SAVED_STATE_KEY) saveCurrentState();
+        return true;
+      }
+      window.localStorage.removeItem(key);
+    } catch {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // Ignore storage cleanup failures.
+      }
+    }
   }
+  return false;
 }
 
 function savedStateSnapshot() {
@@ -1545,6 +2087,8 @@ function savedStateSnapshot() {
     })),
     moveLog: state.moveLog.map((entry) => ({ ...entry })),
     lastMove: state.lastMove ? { ...state.lastMove } : null,
+    evalHistory: state.evalHistory.map((entry) => ({ ...entry })),
+    coachLevel: state.coachLevel,
     whiteMode: state.whiteMode,
     blackMode: state.blackMode,
     promotionChoice: state.promotionChoice,
@@ -1558,6 +2102,7 @@ function applySavedState(saved) {
   if (!saved || saved.version !== 1) return false;
   const board = sanitizeBoard(saved.board);
   if (!board) return false;
+  if (!isRestorableSavedBoard(board, saved)) return false;
 
   state.board = board;
   state.turn = colorOrDefault(saved.turn, "w");
@@ -1571,6 +2116,8 @@ function applySavedState(saved) {
   state.history = sanitizeHistory(saved.history);
   state.moveLog = sanitizeMoveLog(saved.moveLog);
   state.lastMove = sanitizeLastMove(saved.lastMove);
+  state.evalHistory = sanitizeEvalHistory(saved.evalHistory);
+  state.coachLevel = coachLevelOrDefault(saved.coachLevel, "intermediate");
   state.whiteMode = modeOrDefault(saved.whiteMode, "manual");
   state.blackMode = modeOrDefault(saved.blackMode, "manual");
   state.promotionChoice = TYPES.includes(saved.promotionChoice) && saved.promotionChoice !== "k" && saved.promotionChoice !== "p"
@@ -1585,6 +2132,15 @@ function applySavedState(saved) {
   state.suggestionSource = "stockfish";
   state.aiTimer = null;
   return true;
+}
+
+function isRestorableSavedBoard(board, saved) {
+  const pieceCount = board.filter(Boolean).length;
+  if (!pieceCount) return false;
+  const whiteKings = board.filter((piece) => piece?.color === "w" && piece.type === "k").length;
+  const blackKings = board.filter((piece) => piece?.color === "b" && piece.type === "k").length;
+  if (whiteKings === 1 && blackKings === 1) return true;
+  return Boolean(saved.editMode || saved.freeMove);
 }
 
 function sanitizeHistory(entries) {
@@ -1648,6 +2204,24 @@ function sanitizeMoveLog(entries) {
   }));
 }
 
+function sanitizeEvalHistory(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries.slice(-MAX_EVAL_HISTORY).map((entry) => {
+    const ply = wholeNumberOrDefault(entry?.ply, 0, 0);
+    const score = Number(entry?.score);
+    if (!Number.isFinite(score)) return null;
+    const mate = entry?.mate === null || entry?.mate === undefined ? null : Number(entry.mate);
+    return {
+      ply,
+      fen: String(entry?.fen || "").slice(0, 120),
+      score,
+      mate: Number.isFinite(mate) ? mate : null,
+      label: String(entry?.label || (ply ? `Move ${ply}` : "Start")).slice(0, 80),
+      display: String(entry?.display || evaluationDisplay(score, Number.isFinite(mate) ? mate : null)).slice(0, 80),
+    };
+  }).filter(Boolean);
+}
+
 function sanitizeLastMove(move) {
   if (!move) return null;
   const from = boardIndexOrNull(move.from);
@@ -1666,6 +2240,10 @@ function colorOrDefault(value, fallback) {
 
 function modeOrDefault(value, fallback) {
   return ["manual", "human", "ai"].includes(value) ? value : fallback;
+}
+
+function coachLevelOrDefault(value, fallback) {
+  return ["beginner", "intermediate", "advanced"].includes(value) ? value : fallback;
 }
 
 function wholeNumberOrDefault(value, fallback, min) {
@@ -1746,6 +2324,7 @@ function loadFenFromInput() {
   state.selected = null;
   state.legalTargets = [];
   state.lastMove = null;
+  state.evalHistory = [];
   refresh("Loaded FEN. The AI rebuilt its understanding from the imported position.");
 }
 
@@ -1899,6 +2478,15 @@ function formatScore(delta) {
   const pawns = delta / 100;
   if (Math.abs(pawns) < 0.05) return "≈ even";
   return `${pawns > 0 ? "+" : ""}${pawns.toFixed(2)}`;
+}
+
+function evaluationDisplay(score, mate = null) {
+  if (mate !== null) {
+    return mate > 0 ? `White mate in ${Math.abs(mate)}` : `Black mate in ${Math.abs(mate)}`;
+  }
+  if (Math.abs(score) < 15) return "Even";
+  const leader = score > 0 ? "White" : "Black";
+  return `${leader} +${Math.abs(score / 100).toFixed(2)}`;
 }
 
 function suggestionScoreText(item) {

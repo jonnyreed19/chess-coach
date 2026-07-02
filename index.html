@@ -9,7 +9,7 @@
     <title>Chess Coach Board</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=27" />
+    <link rel="stylesheet" href="styles.css?v=35" />
   </head>
   <body>
     <main class="app-shell">
@@ -19,7 +19,10 @@
             <p class="eyebrow">Live Chess Coach</p>
             <h1>Practice board</h1>
           </div>
-          <div class="status-pill" id="gameStatus">White to move</div>
+          <div class="top-actions">
+            <button id="copyAiBoardModel" class="top-copy-button" type="button">Copy AI board</button>
+            <div class="status-pill" id="gameStatus">White to move</div>
+          </div>
         </div>
 
         <div class="board-wrap">
@@ -36,10 +39,13 @@
         <div class="move-tools board-tools">
           <button id="newWhite">New: White first</button>
           <button id="newBlack">New: Black first</button>
-          <button id="fullReset" class="danger">Full reset</button>
           <button id="undoMove">Undo</button>
           <button id="flipBoard">Flip board</button>
           <button id="coachMove" class="primary">Coach best move</button>
+        </div>
+
+        <div class="reset-zone" aria-label="Reset controls">
+          <button id="fullReset" class="danger" type="button">Full reset</button>
         </div>
 
         <details class="collapse-panel settings-details" id="settingsDetails">
@@ -154,36 +160,108 @@
           <div id="lesson" class="lesson"></div>
         </section>
 
-        <details class="collapse-panel model-details" id="modelDetails">
-          <summary>
-            <span>AI board model</span>
-            <small>FEN, pieces, and AI copy block</small>
-          </summary>
-          <section class="coach-card model-card">
-            <div class="card-heading">
-              <p class="eyebrow">AI board model</p>
-              <h2>Current understanding</h2>
+        <section class="coach-card graph-card review-card" aria-label="Chess graphs">
+          <div class="card-heading">
+            <p class="eyebrow">Graphs</p>
+            <h2>Evaluation</h2>
+          </div>
+          <div class="graphs-grid">
+            <div class="graph-panel">
+              <div class="graph-heading">
+                <strong>Engine points</strong>
+                <span id="evalSummary">Waiting for Stockfish</span>
+              </div>
+              <svg id="evalGraph" class="eval-graph" viewBox="0 0 320 150" role="img" aria-label="Stockfish evaluation graph"></svg>
             </div>
-            <div class="sync-grid">
-              <div>
-                <span class="label">FEN</span>
-                <button id="copyFen" class="text-button">Copy</button>
-                <code id="fenText"></code>
+          </div>
+        </section>
+
+        <section class="coach-card learning-card review-card" aria-label="Learning tools">
+          <div class="card-heading">
+            <p class="eyebrow">Learning Tools</p>
+            <h2>Study helpers</h2>
+          </div>
+
+          <div class="learning-grid">
+            <section class="learning-panel">
+              <div class="tool-heading">
+                <strong>Coach level</strong>
+                <span>Controls explanation depth</span>
               </div>
-              <div>
-                <span class="label">Pieces seen</span>
-                <div id="pieceInventory" class="inventory"></div>
+              <select id="coachLevel">
+                <option value="beginner">Beginner</option>
+                <option value="intermediate" selected>Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </section>
+
+            <section class="learning-panel material-panel">
+              <div class="tool-heading">
+                <strong>Material bar</strong>
+                <span id="materialSummary">Material even</span>
               </div>
-              <div class="model-copy-panel">
-                <div class="copy-heading">
-                  <span class="label">AI query block</span>
-                  <button id="copyModelBlock" class="text-button" type="button">Copy block</button>
-                </div>
-                <textarea id="modelCopyBlock" class="model-copy-block" aria-label="AI query board model" readonly></textarea>
+              <div class="material-bar" aria-label="Material balance">
+                <div id="whiteMaterialBar" class="material-fill white-fill"></div>
+                <div id="blackMaterialBar" class="material-fill black-fill"></div>
               </div>
-            </div>
-          </section>
-        </details>
+              <div id="materialDetails" class="tool-note"></div>
+            </section>
+
+            <section class="learning-panel">
+              <div class="tool-heading">
+                <strong>Opening</strong>
+                <span id="openingPly">Move 1</span>
+              </div>
+              <div id="openingInfo" class="tool-note"></div>
+            </section>
+
+            <section class="learning-panel">
+              <div class="tool-heading">
+                <strong>Plan summary</strong>
+                <span>What to do next</span>
+              </div>
+              <div id="planSummary" class="tool-note"></div>
+            </section>
+
+            <section class="learning-panel">
+              <div class="tool-heading">
+                <strong>Why not this move?</strong>
+                <span>Compare a candidate</span>
+              </div>
+              <div class="tool-row">
+                <select id="whyNotMove"></select>
+                <button id="compareMove" type="button">Compare</button>
+              </div>
+              <div id="whyNotResult" class="tool-note"></div>
+            </section>
+
+            <section class="learning-panel mistake-panel">
+              <div class="tool-heading">
+                <strong>Mistake review</strong>
+                <button id="reviewNextMistake" class="text-button" type="button">Next issue</button>
+              </div>
+              <div id="mistakeList" class="mistake-list"></div>
+            </section>
+
+            <section class="learning-panel ask-panel">
+              <div class="tool-heading">
+                <strong>Ask coach</strong>
+                <span>Type a chess question</span>
+              </div>
+              <textarea id="coachQuestion" class="coach-question" aria-label="Ask coach a chess question" placeholder="Example: Why is my bishop bad?"></textarea>
+              <button id="askCoach" type="button">Ask</button>
+              <div id="coachAnswer" class="tool-note"></div>
+            </section>
+
+            <section class="learning-panel">
+              <div class="tool-heading">
+                <strong>Endgame helper</strong>
+                <span id="endgamePhase">Position phase</span>
+              </div>
+              <div id="endgameHelper" class="tool-note"></div>
+            </section>
+          </div>
+        </section>
 
         <section class="coach-card history-card">
           <div class="card-heading">
@@ -194,7 +272,8 @@
         </section>
       </aside>
     </main>
+    <textarea id="modelClipboardBuffer" class="clipboard-buffer" aria-hidden="true" tabindex="-1"></textarea>
 
-    <script src="app.js?v=27"></script>
+    <script src="app.js?v=35"></script>
   </body>
 </html>

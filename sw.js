@@ -1,9 +1,9 @@
-const CACHE_NAME = "chess-coach-v27";
+const CACHE_NAME = "chess-coach-v35";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=27",
-  "./app.js?v=27",
+  "./styles.css?v=35",
+  "./app.js?v=35",
   "./manifest.webmanifest",
   "./icon.svg",
   "./vendor/stockfish/stockfish-nnue-16-single.js",
@@ -25,7 +25,19 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
-  );
+  const acceptsHtml = event.request.mode === "navigate"
+    || event.request.headers.get("accept")?.includes("text/html");
+  if (acceptsHtml) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
+  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
 });
